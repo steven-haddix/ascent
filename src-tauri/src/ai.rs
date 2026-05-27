@@ -74,7 +74,7 @@ pub async fn ai_request(
 
 #[derive(Clone, serde::Serialize)]
 #[serde(tag = "event", rename_all = "snake_case")]
-enum StreamMsg {
+pub enum StreamMsg {
     Chunk { data: String }, // base64 of the raw body bytes
     Done,
     Error { message: String },
