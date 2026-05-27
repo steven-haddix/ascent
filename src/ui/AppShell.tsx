@@ -156,11 +156,12 @@ interface AppShellProps {
   onSelectConcept: (id: string) => void;
   onStartTopic: (title: string) => void;
   starting: boolean;
+  startError?: string | null;
   onNewTopic: () => void;
 }
 
 export function AppShell(props: AppShellProps) {
-  const { activeTopicId, concepts, selectedConceptId, onSelectConcept, onStartTopic, starting, onNewTopic } =
+  const { activeTopicId, concepts, selectedConceptId, onSelectConcept, onStartTopic, starting, startError, onNewTopic } =
     props;
   const selected = concepts.find((c) => c.id === selectedConceptId) ?? null;
 
@@ -178,7 +179,7 @@ export function AppShell(props: AppShellProps) {
           {activeTopicId ? (
             <LessonView concept={selected} concepts={concepts} />
           ) : (
-            <Trailhead onStart={onStartTopic} busy={starting} />
+            <Trailhead onStart={onStartTopic} busy={starting} error={startError} />
           )}
         </main>
         <aside className="flex flex-col border-l border-rule bg-surface">

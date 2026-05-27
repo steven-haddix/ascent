@@ -1,7 +1,15 @@
 import { useState } from "react";
 
 /** Home / new-topic screen. Name a subject -> AI sketches the concept tree. */
-export function Trailhead({ onStart, busy }: { onStart: (title: string) => void; busy: boolean }) {
+export function Trailhead({
+  onStart,
+  busy,
+  error,
+}: {
+  onStart: (title: string) => void;
+  busy: boolean;
+  error?: string | null;
+}) {
   const [title, setTitle] = useState("");
   const start = () => {
     if (title.trim() && !busy) onStart(title.trim());
@@ -32,6 +40,9 @@ export function Trailhead({ onStart, busy }: { onStart: (title: string) => void;
           </button>
         </div>
         {busy && <p className="mt-3 text-xs text-ink-3">Outlining the concept tree…</p>}
+        {error && !busy && (
+          <p className="mt-3 text-xs text-red-600">Couldn't outline that topic — {error}</p>
+        )}
       </div>
     </div>
   );
