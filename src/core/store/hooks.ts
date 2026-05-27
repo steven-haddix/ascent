@@ -2,9 +2,11 @@
 // to these hooks, never to drizzle directly — keeping the swap-to-sync seam.
 import { useEffect, useState } from "react";
 import { QueryClient, useMutation, useQuery } from "@tanstack/react-query";
-import { topicRepo, conceptRepo, lessonRepo, type ConceptRow } from "./repositories";
+import { topicRepo, conceptRepo, lessonRepo, chatRepo, type ConceptRow } from "./repositories";
 import { startTopic } from "../generation/outline";
 import { generateLesson, type LessonContext, type PartialLesson } from "../generation/lesson";
+import { chat, type ChatContext } from "../generation/tutor";
+import { getTutorMode } from "../settings";
 
 export const queryClient = new QueryClient();
 
@@ -99,4 +101,46 @@ export function useConceptLesson(concept: ConceptRow | null, ctx: LessonContext)
     error: gen.error ? ((gen.error as Error).message ?? String(gen.error)) : null,
     retry: () => gen.mutate(),
   };
+}
+
+/** Branch-grounded chat for a concept: persisted turns + a streamed reply. */
+export function useChat(concept: ConceptRow | null, ctx: ChatContext) {
+  const turns = useQuery({
+    queryKey: ["chat", concept?.id],
+    queryFn: () => chatRepo.byConcept(concept!.id),
+    enabled: !!concept,
+  });
+  const [streaming, setStreaming] = useState<string | null>(null);
+  const [sending, setSending] = useState(false);
+
+  const send = async (message: string) => {
+    const text = message.trim();
+    if (!concept || sending || !text) return;
+    const cid = concept.id;
+    const history = (turns.data ?? []).map((t) => ({ role: t.role, text: t.text }));
+    setSending(true);
+    setStreaming("");
+    try {
+      await chatRepo.append({ id: crypto.randomUUID(), conceptId: cid, role: "user", text, createdAt: Date.now() });
+      queryClient.invalidateQueries({ queryKey: ["chat", cid] });
+      const reply = await chat(concept, ctx, history, getTutorMode(), text, (d) =>
+        setStreaming((s) => (s ?? "") + d),
+      );
+      await chatRepo.append({ id: crypto.randomUUID(), conceptId: cid, role: "ai", text: reply, createdAt: Date.now() });
+    } catch {
+      await chatRepo.append({
+        id: crypto.randomUUID(),
+        conceptId: cid,
+        role: "ai",
+        text: "(tutor offline — try again)",
+        createdAt: Date.now(),
+      });
+    } finally {
+      setStreaming(null);
+      setSending(false);
+      queryClient.invalidateQueries({ queryKey: ["chat", cid] });
+    }
+  };
+
+  return { turns: turns.data ?? [], streaming, sending, send };
 }

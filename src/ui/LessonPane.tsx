@@ -3,6 +3,7 @@ import type { ConceptRow } from "../core/store/repositories";
 import type { Block, SuggestedBranch, Term } from "../core/types";
 import { useConceptLesson } from "../core/store/hooks";
 import { TermPopover } from "./TermPopover";
+import { ChatThread } from "./ChatThread";
 
 const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
@@ -172,6 +173,10 @@ export function LessonPane({
           )}
           {!generating && <SuggestedBranches branches={branches} onFork={onFork} />}
         </div>
+      )}
+
+      {!generating && lesson && (
+        <ChatThread concept={concept} ctx={{ topicTitle, path, summary: concept.summary }} />
       )}
 
       {pop && (
