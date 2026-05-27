@@ -1,6 +1,6 @@
 import { defineConfig } from "drizzle-kit";
 
-// Generate-only workflow: `pnpm drizzle-kit generate` emits SQL migrations that
+// Generate-only workflow: `bunx drizzle-kit generate` emits SQL migrations that
 // the app applies at startup via the Rust db_execute command (see migrate.ts).
 export default defineConfig({
   dialect: "sqlite",

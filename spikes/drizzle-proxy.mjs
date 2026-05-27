@@ -1,15 +1,15 @@
 // Spike 1 (JS half): does drizzle-orm/sqlite-proxy work against the SAME row
 // shape our Rust `run_sql` returns (positional value arrays)?
 //
-// We use Node's built-in node:sqlite as a stand-in for the Rust executor —
+// We use bun:sqlite as a stand-in for the Rust executor —
 // Drizzle can't tell the difference; it just receives `{ rows }`. This proves
 // the rusqlite serialization contract end-to-end on the JS side, including the
 // empty-`get()` case that breaks the tauri-plugin-sql (row-object) path, plus a
 // relational `findFirst`.
 //
-// Run: node spikes/drizzle-proxy.mjs   (add --experimental-sqlite if needed)
+// Run: bun spikes/drizzle-proxy.mjs
 
-import { DatabaseSync } from "node:sqlite";
+import { Database } from "bun:sqlite";
 import { drizzle } from "drizzle-orm/sqlite-proxy";
 import { sqliteTable, integer, text } from "drizzle-orm/sqlite-core";
 import { relations, eq } from "drizzle-orm";
@@ -31,7 +31,7 @@ const conceptsRel = relations(concepts, ({ one }) => ({
 const schema = { topics, concepts, topicsRel, conceptsRel };
 
 // --- raw SQLite (stands in for the Rust side) ---
-const sqlite = new DatabaseSync(":memory:");
+const sqlite = new Database(":memory:");
 sqlite.exec(`
   CREATE TABLE topics (id INTEGER PRIMARY KEY, title TEXT NOT NULL);
   CREATE TABLE concepts (id INTEGER PRIMARY KEY, topic_id INTEGER NOT NULL, title TEXT NOT NULL);
