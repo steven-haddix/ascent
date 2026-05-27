@@ -1,29 +1,90 @@
 // AIService — the only place that touches the model SDK. Every request is routed
-// through the Rust `ai_request` command (CORS-free; the key is attached in Rust
-// and never enters JS). Provider-agnostic: other providers slot into getModel()
-// later without changing call sites.
+// through Rust (CORS-free; the key is attached in Rust, never in JS).
+//   - non-streaming requests -> ai_request (full Response)
+//   - streaming requests (body.stream === true) -> ai_stream, whose body chunks
+//     arrive over a Tauri Channel and are rebuilt into a streaming Response.
+// Provider-agnostic: other providers slot into getModel() later.
 import { createAnthropic } from "@ai-sdk/anthropic";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke, Channel } from "@tauri-apps/api/core";
 
 interface AiResponse {
   status: number;
   headers: Record<string, string>;
   body: string;
 }
+interface StreamHead {
+  status: number;
+  headers: Record<string, string>;
+}
+type StreamMsg =
+  | { event: "chunk"; data: string } // base64 of raw body bytes
+  | { event: "done" }
+  | { event: "error"; message: string };
+
+function base64ToBytes(b64: string): Uint8Array {
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes;
+}
+
+function headerObject(init?: RequestInit): Record<string, string> {
+  const h: Record<string, string> = {};
+  new Headers(init?.headers ?? {}).forEach((v, k) => (h[k] = v));
+  return h;
+}
+
+function urlOf(input: RequestInfo | URL): string {
+  return input instanceof URL ? input.href : typeof input === "string" ? input : (input as Request).url;
+}
+
+async function streamingFetch(
+  url: string,
+  method: string,
+  headers: Record<string, string>,
+  body: string | null,
+): Promise<Response> {
+  let controller!: ReadableStreamDefaultController<Uint8Array>;
+  const stream = new ReadableStream<Uint8Array>({
+    start(c) {
+      controller = c;
+    },
+  });
+  let closed = false;
+  const channel = new Channel<StreamMsg>();
+  channel.onmessage = (msg) => {
+    if (closed) return;
+    if (msg.event === "chunk") controller.enqueue(base64ToBytes(msg.data));
+    else if (msg.event === "done") {
+      closed = true;
+      controller.close();
+    } else {
+      closed = true;
+      controller.error(new Error(msg.message));
+    }
+  };
+  const head = await invoke<StreamHead>("ai_stream", { channel, url, method, headers, body });
+  return new Response(stream, { status: head.status, headers: head.headers });
+}
 
 const tauriFetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
-  const url =
-    input instanceof URL ? input.href : typeof input === "string" ? input : (input as Request).url;
-  const headers: Record<string, string> = {};
-  new Headers(init?.headers ?? {}).forEach((value, key) => {
-    headers[key] = value;
-  });
-  const res = await invoke<AiResponse>("ai_request", {
-    url,
-    method: init?.method ?? "POST",
-    headers,
-    body: typeof init?.body === "string" ? init.body : null,
-  });
+  const url = urlOf(input);
+  const method = init?.method ?? "POST";
+  const headers = headerObject(init);
+  const body = typeof init?.body === "string" ? init.body : null;
+
+  let wantsStream = false;
+  if (body) {
+    try {
+      wantsStream = JSON.parse(body).stream === true;
+    } catch {
+      /* body isn't JSON — treat as non-streaming */
+    }
+  }
+
+  if (wantsStream) return streamingFetch(url, method, headers, body);
+
+  const res = await invoke<AiResponse>("ai_request", { url, method, headers, body });
   return new Response(res.body, { status: res.status, headers: res.headers });
 };
 

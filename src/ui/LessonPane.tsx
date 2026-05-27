@@ -107,7 +107,7 @@ export function LessonPane({
     .map((c) => c.title);
   const children = concepts.filter((c) => c.parentId === concept.id).map((c) => c.title);
 
-  const { lesson, generating, error, retry } = useConceptLesson(concept, {
+  const { lesson, partial, generating, error, retry } = useConceptLesson(concept, {
     topicTitle,
     path,
     summary: concept.summary,
@@ -115,6 +115,14 @@ export function LessonPane({
     children,
   });
   const [pop, setPop] = useState<{ term: Term; rect: DOMRect } | null>(null);
+
+  // While streaming, render the partial; once persisted, the final lesson wins.
+  const display = lesson ?? partial;
+  const subtitle = display?.subtitle ?? null;
+  const blocks = ((display?.blocks ?? []) as Block[]).filter((b) =>
+    b.kind ? (b.kind === "section" ? !!b.label?.trim() : !!b.text?.trim()) : false,
+  );
+  const branches = (lesson?.suggestedBranches as SuggestedBranch[] | undefined) ?? [];
 
   return (
     <div className="mx-auto max-w-[720px] px-12 py-10">
@@ -128,9 +136,9 @@ export function LessonPane({
       </div>
 
       <h1 className="font-serif text-4xl font-normal leading-tight tracking-tight text-ink">{concept.title}</h1>
-      {lesson?.subtitle && <p className="mt-2 font-serif text-lg italic text-ink-2">{lesson.subtitle}</p>}
+      {subtitle && <p className="mt-2 font-serif text-lg italic text-ink-2">{subtitle}</p>}
 
-      {generating && (
+      {generating && blocks.length === 0 && (
         <div className="mt-8 flex items-center gap-2 text-sm text-ink-3">
           <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />
           Generating this lesson…
@@ -145,11 +153,9 @@ export function LessonPane({
         </div>
       )}
 
-      {lesson && (
+      {blocks.length > 0 && (
         <div className="mt-7 font-serif text-[16.5px] leading-[1.65] text-ink">
-          {(lesson.blocks as Block[])
-            .filter((b) => (b.kind === "section" ? !!b.label?.trim() : !!b.text?.trim()))
-            .map((b, i) =>
+          {blocks.map((b, i) =>
             b.kind === "section" ? (
               <SectionHead key={i} block={b} />
             ) : b.kind === "callout" ? (
@@ -158,7 +164,13 @@ export function LessonPane({
               <Paragraph key={i} block={b} onTerm={(t, r) => setPop({ term: t, rect: r })} />
             ),
           )}
-          <SuggestedBranches branches={(lesson.suggestedBranches as SuggestedBranch[]) ?? []} onFork={onFork} />
+          {generating && (
+            <div className="mt-2 flex items-center gap-2 font-sans text-xs text-ink-3">
+              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />
+              streaming…
+            </div>
+          )}
+          {!generating && <SuggestedBranches branches={branches} onFork={onFork} />}
         </div>
       )}
 

@@ -1,8 +1,7 @@
-// GenerationService — lesson bodies. Generated lazily on first visit and
-// persisted. Non-streaming for now (reuses the proven ai_request transport);
-// M3-B switches this to streamObject over the Rust Channel for progressive
-// rendering. The UI renders from persisted blocks either way.
-import { generateText, Output } from "ai";
+// GenerationService — lesson bodies. Streamed on first visit and persisted.
+// generateLesson streams partial lessons (onPartial) for progressive rendering,
+// then persists the complete, validated result.
+import { streamText, Output } from "ai";
 import { z } from "zod";
 import { getModel, MODELS } from "../ai/service";
 import { lessonRepo, conceptRepo, type ConceptRow } from "../store/repositories";
@@ -31,17 +30,24 @@ const LessonSchema = z.object({
 
 export interface LessonContext {
   topicTitle: string;
-  /** breadcrumb of concept titles, root -> this concept */
   path: string[];
-  /** this concept's focus (from the outline / a forked term's gloss) */
   summary?: string | null;
-  /** peer concept titles taught in their own lessons */
   siblings: string[];
-  /** sub-concept titles taught in their own lessons */
   children: string[];
 }
 
-export async function generateLesson(concept: ConceptRow, ctx: LessonContext) {
+/** A lesson while it's still streaming (fields fill in progressively). */
+export interface PartialLesson {
+  subtitle?: string;
+  blocks?: Block[];
+  suggestedBranches?: SuggestedBranch[];
+}
+
+export async function generateLesson(
+  concept: ConceptRow,
+  ctx: LessonContext,
+  onPartial?: (partial: PartialLesson) => void,
+) {
   const focus = ctx.summary ? `\nFocus (what this concept should cover): ${ctx.summary}` : "";
   const siblings = ctx.siblings.length
     ? `\nSibling concepts taught separately — do NOT re-explain these: ${ctx.siblings.join(", ")}.`
@@ -50,7 +56,7 @@ export async function generateLesson(concept: ConceptRow, ctx: LessonContext) {
     ? `\nThis concept has sub-concepts taught in their own lessons: ${ctx.children.join(", ")}. Keep THIS lesson an orienting overview that motivates and connects them — don't fully dive into each.`
     : "";
 
-  const { output } = await generateText({
+  const result = streamText({
     model: getModel(MODELS.default),
     output: Output.object({ schema: LessonSchema }),
     prompt: `You are a sharp, concrete tutor writing ONE focused lesson within a larger learning tree.
@@ -69,6 +75,11 @@ label one "load-bearing"). Every block must have content: paragraph and callout 
 non-empty text, section needs a label. Finish by suggesting 2-4 next concepts. Be
 concrete; no filler; no markdown.`,
   });
+
+  for await (const partial of result.partialOutputStream) {
+    onPartial?.(partial as unknown as PartialLesson);
+  }
+  const output = await result.output;
 
   const now = Date.now();
   const row = {
