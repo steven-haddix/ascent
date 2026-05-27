@@ -19,7 +19,8 @@
 
 use rusqlite::{ffi::sqlite3_auto_extension, types::ValueRef, Connection};
 use serde_json::Value;
-use std::sync::Once;
+use std::sync::{Mutex, Once};
+use tauri::State;
 
 static VEC_INIT: Once = Once::new();
 
@@ -124,6 +125,24 @@ pub fn run_sql(
         rows.truncate(1);
     }
     Ok(SqlResult { rows })
+}
+
+/// The single app-wide SQLite connection, guarded by a mutex and opened at
+/// startup. The TS migration runner and every repository reach SQLite through
+/// the `db_execute` command below.
+pub struct Db(pub Mutex<Connection>);
+
+/// Command Drizzle's sqlite-proxy calls for every statement. Returns rows as
+/// positional value arrays; the JS shim flattens `rows[0]` for `get`.
+#[tauri::command]
+pub fn db_execute(
+    state: State<'_, Db>,
+    sql: String,
+    params: Vec<Value>,
+    method: Method,
+) -> Result<SqlResult, String> {
+    let conn = state.0.lock().map_err(|e| e.to_string())?;
+    run_sql(&conn, &sql, &params, method).map_err(|e| e.to_string())
 }
 
 #[cfg(test)]
