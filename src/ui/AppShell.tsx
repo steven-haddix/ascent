@@ -1,4 +1,7 @@
 import { useEffect, useState } from "react";
+import type { ConceptRow } from "../core/store/repositories";
+import { ConceptTree } from "./ConceptTree";
+import { Trailhead } from "./Trailhead";
 
 const THEMES = ["cream", "paper", "dark"] as const;
 type Theme = (typeof THEMES)[number];
@@ -45,7 +48,6 @@ function Topbar() {
           <div className="font-mono text-[10.5px] text-ink-3">tree-driven learning</div>
         </div>
       </div>
-
       <div className="flex justify-center">
         <button className="flex w-full max-w-[520px] items-center gap-2.5 rounded-lg border border-rule bg-surface-2 px-3 py-1.5 text-left text-[12.5px] text-ink-3 hover:border-rule-strong hover:text-ink-2">
           <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.2">
@@ -56,12 +58,9 @@ function Topbar() {
           <span className="rounded border border-rule bg-surface px-1.5 py-0.5 font-mono text-[10.5px]">⌘K</span>
         </button>
       </div>
-
       <div className="flex items-center justify-end gap-2.5">
         <ThemeToggle />
-        <div className="grid h-7 w-7 place-items-center rounded-full bg-ink text-[10.5px] font-semibold text-surface">
-          ⛰
-        </div>
+        <div className="grid h-7 w-7 place-items-center rounded-full bg-ink text-[10.5px] font-semibold text-surface">⛰</div>
       </div>
     </header>
   );
@@ -77,17 +76,34 @@ function EmptyPane({ eyebrow, title, hint }: { eyebrow: string; title: string; h
   );
 }
 
-function Sidebar() {
+function Sidebar({
+  concepts,
+  selectedConceptId,
+  onSelectConcept,
+  onNewTopic,
+}: {
+  concepts: ConceptRow[];
+  selectedConceptId: string | null;
+  onSelectConcept: (id: string) => void;
+  onNewTopic: () => void;
+}) {
   return (
     <aside className="flex flex-col border-r border-rule bg-surface">
       <div className="flex items-center justify-between px-3.5 pb-2 pt-3.5">
         <span className="text-[10.5px] font-medium uppercase tracking-wider text-ink-3">Learning tree</span>
       </div>
-      <div className="flex-1">
-        <EmptyPane eyebrow="Empty" title="No topics yet" hint="Start a topic and Ascent will sketch a tree of concepts to explore." />
+      <div className="min-h-0 flex-1">
+        {concepts.length > 0 ? (
+          <ConceptTree concepts={concepts} selectedId={selectedConceptId} onSelect={onSelectConcept} />
+        ) : (
+          <EmptyPane eyebrow="Empty" title="No topic open" hint="Start a topic to grow a tree of concepts." />
+        )}
       </div>
       <div className="border-t border-rule p-3.5">
-        <button className="flex w-full items-center justify-center gap-1.5 rounded-md bg-ink py-1.5 text-xs font-medium text-surface hover:opacity-90">
+        <button
+          onClick={onNewTopic}
+          className="flex w-full items-center justify-center gap-1.5 rounded-md bg-ink py-1.5 text-xs font-medium text-surface hover:opacity-90"
+        >
           <svg width="11" height="11" viewBox="0 0 11 11">
             <path d="M5.5 1.5 L5.5 9.5 M1.5 5.5 L9.5 5.5" stroke="currentColor" strokeWidth="1.4" fill="none" />
           </svg>
@@ -98,36 +114,80 @@ function Sidebar() {
   );
 }
 
-function LessonPane() {
+function pathTo(concepts: ConceptRow[], id: string): string[] {
+  const byId = new Map(concepts.map((c) => [c.id, c]));
+  const path: string[] = [];
+  let cur: ConceptRow | undefined = byId.get(id);
+  while (cur) {
+    path.unshift(cur.title);
+    cur = cur.parentId ? byId.get(cur.parentId) : undefined;
+  }
+  return path;
+}
+
+function LessonView({ concept, concepts }: { concept: ConceptRow | null; concepts: ConceptRow[] }) {
+  if (!concept) {
+    return <EmptyPane eyebrow="Lesson" title="Pick a concept" hint="Select a concept in the tree to begin." />;
+  }
+  const crumbs = pathTo(concepts, concept.id);
   return (
-    <main className="min-w-0 bg-bg">
-      <EmptyPane
-        eyebrow="Lesson"
-        title="Pick a concept to begin"
-        hint="Lessons generate as you visit each concept, with forkable terms you can branch from."
-      />
-    </main>
+    <div className="mx-auto max-w-[720px] px-12 py-10">
+      <div className="mb-4 flex items-center font-mono text-[11.5px] text-ink-3">
+        {crumbs.map((b, i) => (
+          <span key={i}>
+            {i > 0 && <span className="px-1 text-ink-4">/</span>}
+            <span className={i === crumbs.length - 1 ? "text-ink" : ""}>{b}</span>
+          </span>
+        ))}
+      </div>
+      <h1 className="font-serif text-4xl font-normal leading-tight tracking-tight text-ink">{concept.title}</h1>
+      <div className="mt-8 rounded-lg border border-dashed border-rule-strong bg-surface p-5 text-sm leading-relaxed text-ink-2">
+        The lesson for this concept will generate here when you visit it — streamed in as typed blocks
+        with forkable terms you can branch from. (That's next, in M3.)
+      </div>
+    </div>
   );
 }
 
-function PreviewPane() {
-  return (
-    <aside className="flex flex-col border-l border-rule bg-surface">
-      <EmptyPane eyebrow="Preview" title="Nothing pinned" hint="Notes, quizzes, code, and more attach to the concept you're learning." />
-    </aside>
-  );
+interface AppShellProps {
+  activeTopicId: string | null;
+  concepts: ConceptRow[];
+  selectedConceptId: string | null;
+  onSelectConcept: (id: string) => void;
+  onStartTopic: (title: string) => void;
+  starting: boolean;
+  onNewTopic: () => void;
 }
 
-/** The 3-pane application shell. Panes are structural empty-states for now;
- *  real content (tree, lessons, lenses) lands in M2+. */
-export function AppShell() {
+export function AppShell(props: AppShellProps) {
+  const { activeTopicId, concepts, selectedConceptId, onSelectConcept, onStartTopic, starting, onNewTopic } =
+    props;
+  const selected = concepts.find((c) => c.id === selectedConceptId) ?? null;
+
   return (
     <div className="flex h-screen flex-col">
       <Topbar />
       <div className="grid min-h-0 flex-1 grid-cols-[minmax(220px,260px)_minmax(0,1fr)_minmax(360px,440px)]">
-        <Sidebar />
-        <LessonPane />
-        <PreviewPane />
+        <Sidebar
+          concepts={concepts}
+          selectedConceptId={selectedConceptId}
+          onSelectConcept={onSelectConcept}
+          onNewTopic={onNewTopic}
+        />
+        <main className="min-w-0 overflow-y-auto bg-bg">
+          {activeTopicId ? (
+            <LessonView concept={selected} concepts={concepts} />
+          ) : (
+            <Trailhead onStart={onStartTopic} busy={starting} />
+          )}
+        </main>
+        <aside className="flex flex-col border-l border-rule bg-surface">
+          <EmptyPane
+            eyebrow="Preview"
+            title="Nothing pinned"
+            hint="Notes, quizzes, code, and more attach to the concept you're learning."
+          />
+        </aside>
       </div>
     </div>
   );
