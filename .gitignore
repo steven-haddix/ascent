@@ -1,0 +1,30 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build output
+dist/
+dist-ssr/
+build/
+
+# Rust / Tauri
+src-tauri/target/
+src-tauri/gen/
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Env / secrets (we use the OS keychain; never commit keys)
+.env
+.env.*
+!.env.example
+
+# Editor / OS
+.DS_Store
+*.local
+.idea/
+
+# Misc
+*.tsbuildinfo
