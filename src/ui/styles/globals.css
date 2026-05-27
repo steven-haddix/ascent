@@ -1,0 +1,58 @@
+@import "tailwindcss";
+@import "@heroui/styles";
+
+@custom-variant dark (&:is(.dark *));
+
+/* Ascent design tokens — ported from the mock. Cream is the default; paper and
+   dark override at runtime via [data-theme] on <html>. Defined in @theme so they
+   become Tailwind utilities (bg-bg, text-ink-2, border-rule, font-serif, …). */
+@theme {
+  --color-bg: #f4f1e8;
+  --color-surface: #fbf8f0;
+  --color-surface-2: #f7f3e8;
+  --color-ink: #1a1815;
+  --color-ink-2: #4a463e;
+  --color-ink-3: #8a857a;
+  --color-ink-4: #b8b3a5;
+  --color-rule: #e6e0d0;
+  --color-rule-strong: #d4ccb6;
+  --color-accent: #c4622d;
+
+  --font-sans: "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-serif: "Source Serif 4", "Source Serif Pro", Georgia, serif;
+  --font-mono: "Geist Mono", "JetBrains Mono", ui-monospace, Menlo, monospace;
+}
+
+[data-theme="paper"] {
+  --color-bg: #fffdf8;
+  --color-surface: #ffffff;
+  --color-surface-2: #faf7ef;
+}
+
+[data-theme="dark"] {
+  --color-bg: #14130f;
+  --color-surface: #1c1a16;
+  --color-surface-2: #221f1a;
+  --color-ink: #f0ebe0;
+  --color-ink-2: #b8b3a5;
+  --color-ink-3: #7c7666;
+  --color-ink-4: #4a463e;
+  --color-rule: #2c2823;
+  --color-rule-strong: #3a352d;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+body {
+  margin: 0;
+  background: var(--color-bg);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
