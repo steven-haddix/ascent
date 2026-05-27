@@ -8,21 +8,25 @@ export type ConceptStatus = "queued" | "current" | "visited" | "complete";
 /** Generation lifecycle for a concept's lesson body. */
 export type ConceptState = "outline" | "generating" | "ready";
 
-/** A forkable term inside lesson prose — structured data, not parsed markdown. */
+/** A forkable term — appears in a paragraph's text and can be branched into. */
 export interface Term {
   term: string;
   gloss: string;
-  branchHint?: boolean;
 }
-export type ParagraphChunk = string | Term;
 
-/** Typed lesson content blocks (not HTML/markdown) so they stream, render, and
- *  fork cleanly across any subject. */
-export type Block =
-  | { kind: "paragraph"; content: ParagraphChunk[] }
-  | { kind: "callout"; label: string; text: string }
-  | { kind: "media"; source: string; locator: string; label: string; sublabel?: string; note?: string }
-  | { kind: "section"; label: string; hint?: string };
+/** A typed lesson content block. Flat shape (kind + optional fields) keeps it
+ *  reliable for structured generation and simple to render. */
+export interface Block {
+  kind: "paragraph" | "callout" | "section";
+  /** paragraph body or callout body */
+  text?: string;
+  /** callout label (e.g. "Notice") or section label */
+  label?: string;
+  /** optional section hint */
+  hint?: string;
+  /** for paragraphs: key terms in the text a learner can fork into */
+  terms?: Term[];
+}
 
 export interface SuggestedBranch {
   title: string;

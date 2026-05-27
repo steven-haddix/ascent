@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { runMigrations } from "../core/store/migrate";
 import { secretStore } from "../core/secrets";
-import { useTopics, useConcepts, useStartTopic } from "../core/store/hooks";
+import { useTopics, useConcepts, useStartTopic, useForkConcept } from "../core/store/hooks";
 import { FirstRun } from "./FirstRun";
 import { AppShell } from "./AppShell";
 
@@ -26,6 +26,7 @@ export function App() {
   const topics = useTopics(phase === "ready");
   const concepts = useConcepts(activeTopicId);
   const startTopic = useStartTopic();
+  const fork = useForkConcept();
 
   // Open the most recent topic on first load.
   useEffect(() => {
@@ -45,6 +46,14 @@ export function App() {
     });
   };
 
+  const handleFork = (title: string) => {
+    if (!activeTopicId || !selectedConceptId) return;
+    fork.mutate(
+      { topicId: activeTopicId, parentId: selectedConceptId, title },
+      { onSuccess: (newId) => setSelectedConceptId(newId) }, // select it -> generates on visit
+    );
+  };
+
   if (phase === "loading") {
     return <div className="grid h-screen place-items-center bg-bg text-sm text-ink-3">Loading…</div>;
   }
@@ -60,10 +69,12 @@ export function App() {
       onSelectConcept={setSelectedConceptId}
       onStartTopic={handleStartTopic}
       starting={startTopic.isPending}
+      startError={startTopic.error ? ((startTopic.error as Error).message ?? String(startTopic.error)) : null}
       onNewTopic={() => {
         setActiveTopicId(null);
         setSelectedConceptId(null);
       }}
+      onFork={handleFork}
     />
   );
 }

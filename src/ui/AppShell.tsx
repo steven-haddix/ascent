@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { ConceptRow } from "../core/store/repositories";
 import { ConceptTree } from "./ConceptTree";
 import { Trailhead } from "./Trailhead";
+import { LessonPane } from "./LessonPane";
 
 const THEMES = ["cream", "paper", "dark"] as const;
 type Theme = (typeof THEMES)[number];
@@ -114,6 +115,7 @@ function Sidebar({
   );
 }
 
+/** Path of concept titles from the root to `id` (for the breadcrumb). */
 function pathTo(concepts: ConceptRow[], id: string): string[] {
   const byId = new Map(concepts.map((c) => [c.id, c]));
   const path: string[] = [];
@@ -125,30 +127,6 @@ function pathTo(concepts: ConceptRow[], id: string): string[] {
   return path;
 }
 
-function LessonView({ concept, concepts }: { concept: ConceptRow | null; concepts: ConceptRow[] }) {
-  if (!concept) {
-    return <EmptyPane eyebrow="Lesson" title="Pick a concept" hint="Select a concept in the tree to begin." />;
-  }
-  const crumbs = pathTo(concepts, concept.id);
-  return (
-    <div className="mx-auto max-w-[720px] px-12 py-10">
-      <div className="mb-4 flex items-center font-mono text-[11.5px] text-ink-3">
-        {crumbs.map((b, i) => (
-          <span key={i}>
-            {i > 0 && <span className="px-1 text-ink-4">/</span>}
-            <span className={i === crumbs.length - 1 ? "text-ink" : ""}>{b}</span>
-          </span>
-        ))}
-      </div>
-      <h1 className="font-serif text-4xl font-normal leading-tight tracking-tight text-ink">{concept.title}</h1>
-      <div className="mt-8 rounded-lg border border-dashed border-rule-strong bg-surface p-5 text-sm leading-relaxed text-ink-2">
-        The lesson for this concept will generate here when you visit it — streamed in as typed blocks
-        with forkable terms you can branch from. (That's next, in M3.)
-      </div>
-    </div>
-  );
-}
-
 interface AppShellProps {
   activeTopicId: string | null;
   concepts: ConceptRow[];
@@ -158,12 +136,24 @@ interface AppShellProps {
   starting: boolean;
   startError?: string | null;
   onNewTopic: () => void;
+  onFork: (title: string) => void;
 }
 
 export function AppShell(props: AppShellProps) {
-  const { activeTopicId, concepts, selectedConceptId, onSelectConcept, onStartTopic, starting, startError, onNewTopic } =
-    props;
+  const {
+    activeTopicId,
+    concepts,
+    selectedConceptId,
+    onSelectConcept,
+    onStartTopic,
+    starting,
+    startError,
+    onNewTopic,
+    onFork,
+  } = props;
+
   const selected = concepts.find((c) => c.id === selectedConceptId) ?? null;
+  const topicTitle = concepts.find((c) => !c.parentId)?.title ?? "";
 
   return (
     <div className="flex h-screen flex-col">
@@ -176,10 +166,18 @@ export function AppShell(props: AppShellProps) {
           onNewTopic={onNewTopic}
         />
         <main className="min-h-0 min-w-0 overflow-y-auto bg-bg">
-          {activeTopicId ? (
-            <LessonView concept={selected} concepts={concepts} />
-          ) : (
+          {!activeTopicId ? (
             <Trailhead onStart={onStartTopic} busy={starting} error={startError} />
+          ) : selected ? (
+            <LessonPane
+              key={selected.id}
+              concept={selected}
+              path={pathTo(concepts, selected.id)}
+              topicTitle={topicTitle}
+              onFork={onFork}
+            />
+          ) : (
+            <EmptyPane eyebrow="Lesson" title="Pick a concept" hint="Select a concept in the tree to begin." />
           )}
         </main>
         <aside className="flex min-h-0 flex-col border-l border-rule bg-surface">
