@@ -96,7 +96,7 @@ export function ConceptTree({
   };
 
   return (
-    <div ref={ref} className="h-full">
+    <div ref={ref} className="h-full pl-3.5">
       <Tree<TreeNode>
         data={data}
         openByDefault

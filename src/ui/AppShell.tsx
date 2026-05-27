@@ -88,7 +88,7 @@ function Sidebar({
   onNewTopic: () => void;
 }) {
   return (
-    <aside className="flex flex-col border-r border-rule bg-surface">
+    <aside className="flex min-h-0 flex-col overflow-hidden border-r border-rule bg-surface">
       <div className="flex items-center justify-between px-3.5 pb-2 pt-3.5">
         <span className="text-[10.5px] font-medium uppercase tracking-wider text-ink-3">Learning tree</span>
       </div>
@@ -168,21 +168,21 @@ export function AppShell(props: AppShellProps) {
   return (
     <div className="flex h-screen flex-col">
       <Topbar />
-      <div className="grid min-h-0 flex-1 grid-cols-[minmax(220px,260px)_minmax(0,1fr)_minmax(360px,440px)]">
+      <div className="grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)] grid-cols-[minmax(220px,260px)_minmax(0,1fr)_minmax(360px,440px)]">
         <Sidebar
           concepts={concepts}
           selectedConceptId={selectedConceptId}
           onSelectConcept={onSelectConcept}
           onNewTopic={onNewTopic}
         />
-        <main className="min-w-0 overflow-y-auto bg-bg">
+        <main className="min-h-0 min-w-0 overflow-y-auto bg-bg">
           {activeTopicId ? (
             <LessonView concept={selected} concepts={concepts} />
           ) : (
             <Trailhead onStart={onStartTopic} busy={starting} error={startError} />
           )}
         </main>
-        <aside className="flex flex-col border-l border-rule bg-surface">
+        <aside className="flex min-h-0 flex-col border-l border-rule bg-surface">
           <EmptyPane
             eyebrow="Preview"
             title="Nothing pinned"
