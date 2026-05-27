@@ -1,0 +1,4 @@
+# libsqlite3-sys 0.38 (via rusqlite) uses cfg_select!, stabilized in Rust 1.95.
+# Pin so contributors get a toolchain that builds the project.
+[toolchain]
+channel = "1.95.0"

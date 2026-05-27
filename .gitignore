@@ -28,3 +28,10 @@ pnpm-debug.log*
 
 # Misc
 *.tsbuildinfo
+
+# Local OMC tooling state (not part of the project)
+.omc/
+
+# Drizzle
+src-tauri/db/*.sqlite
+src-tauri/db/*.sqlite-*
