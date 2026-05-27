@@ -3,7 +3,6 @@ import type { ConceptRow } from "../core/store/repositories";
 import type { Block, SuggestedBranch, Term } from "../core/types";
 import { useConceptLesson } from "../core/store/hooks";
 import { TermPopover } from "./TermPopover";
-import { ChatThread } from "./ChatThread";
 
 const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
@@ -126,7 +125,7 @@ export function LessonPane({
   const branches = (lesson?.suggestedBranches as SuggestedBranch[] | undefined) ?? [];
 
   return (
-    <div className="mx-auto max-w-[720px] px-12 py-10">
+    <div className="mx-auto max-w-[720px] px-12 pb-24 pt-10">
       <div className="mb-4 flex items-center font-mono text-[11.5px] text-ink-3">
         {path.map((b, i) => (
           <span key={i}>
@@ -173,10 +172,6 @@ export function LessonPane({
           )}
           {!generating && <SuggestedBranches branches={branches} onFork={onFork} />}
         </div>
-      )}
-
-      {!generating && lesson && (
-        <ChatThread concept={concept} ctx={{ topicTitle, path, summary: concept.summary }} />
       )}
 
       {pop && (

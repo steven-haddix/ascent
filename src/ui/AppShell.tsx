@@ -3,6 +3,7 @@ import type { ConceptRow } from "../core/store/repositories";
 import { ConceptTree } from "./ConceptTree";
 import { Trailhead } from "./Trailhead";
 import { LessonPane } from "./LessonPane";
+import { ChatDrawer } from "./ChatDrawer";
 
 const THEMES = ["cream", "paper", "dark"] as const;
 type Theme = (typeof THEMES)[number];
@@ -165,18 +166,27 @@ export function AppShell(props: AppShellProps) {
           onSelectConcept={onSelectConcept}
           onNewTopic={onNewTopic}
         />
-        <main className="min-h-0 min-w-0 overflow-y-auto bg-bg">
+        <main className="relative min-h-0 min-w-0 bg-bg">
           {!activeTopicId ? (
             <Trailhead onStart={onStartTopic} busy={starting} error={startError} />
           ) : selected ? (
-            <LessonPane
-              key={selected.id}
-              concept={selected}
-              concepts={concepts}
-              path={pathTo(concepts, selected.id)}
-              topicTitle={topicTitle}
-              onFork={onFork}
-            />
+            <>
+              <div className="h-full overflow-y-auto">
+                <LessonPane
+                  key={selected.id}
+                  concept={selected}
+                  concepts={concepts}
+                  path={pathTo(concepts, selected.id)}
+                  topicTitle={topicTitle}
+                  onFork={onFork}
+                />
+              </div>
+              <ChatDrawer
+                key={selected.id}
+                concept={selected}
+                ctx={{ topicTitle, path: pathTo(concepts, selected.id), summary: selected.summary }}
+              />
+            </>
           ) : (
             <EmptyPane eyebrow="Lesson" title="Pick a concept" hint="Select a concept in the tree to begin." />
           )}
