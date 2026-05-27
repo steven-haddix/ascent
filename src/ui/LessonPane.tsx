@@ -147,7 +147,9 @@ export function LessonPane({
 
       {lesson && (
         <div className="mt-7 font-serif text-[16.5px] leading-[1.65] text-ink">
-          {(lesson.blocks as Block[]).map((b, i) =>
+          {(lesson.blocks as Block[])
+            .filter((b) => (b.kind === "section" ? !!b.label?.trim() : !!b.text?.trim()))
+            .map((b, i) =>
             b.kind === "section" ? (
               <SectionHead key={i} block={b} />
             ) : b.kind === "callout" ? (
