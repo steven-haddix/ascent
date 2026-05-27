@@ -35,10 +35,12 @@ export function useForkConcept() {
       topicId,
       parentId,
       title,
+      summary,
     }: {
       topicId: string;
       parentId: string;
       title: string;
+      summary?: string;
     }) => {
       const id = crypto.randomUUID();
       const now = Date.now();
@@ -47,6 +49,7 @@ export function useForkConcept() {
         topicId,
         parentId,
         title,
+        summary: summary ?? null, // a forked term's gloss / branch reason = its lesson focus
         status: "queued",
         state: "outline",
         order: now, // append after existing siblings
@@ -72,8 +75,9 @@ export function useConceptLesson(concept: ConceptRow | null, ctx: LessonContext)
 
   const gen = useMutation({
     mutationFn: () => generateLesson(concept!, ctx),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["lesson", concept?.id] });
+    onSuccess: (row) => {
+      // Write straight into the cache so the lesson renders instantly (no refetch flash).
+      queryClient.setQueryData(["lesson", concept?.id], row);
       queryClient.invalidateQueries({ queryKey: ["concepts"] });
     },
   });

@@ -11,7 +11,6 @@ function Paragraph({ block, onTerm }: { block: Block; onTerm: (term: Term, rect:
   const terms = block.terms ?? [];
   if (terms.length === 0) return <p className="mb-[18px]">{text}</p>;
 
-  // Split on any term (longest first so overlaps prefer the longer match).
   const sorted = [...terms].sort((a, b) => b.term.length - a.term.length);
   const re = new RegExp(`(${sorted.map((t) => escapeRegex(t.term)).join("|")})`, "gi");
   const parts = text.split(re);
@@ -57,7 +56,13 @@ function SectionHead({ block }: { block: Block }) {
   );
 }
 
-function SuggestedBranches({ branches, onFork }: { branches: SuggestedBranch[]; onFork: (title: string) => void }) {
+function SuggestedBranches({
+  branches,
+  onFork,
+}: {
+  branches: SuggestedBranch[];
+  onFork: (title: string, summary?: string) => void;
+}) {
   if (!branches.length) return null;
   return (
     <div className="mt-9 font-sans">
@@ -69,7 +74,7 @@ function SuggestedBranches({ branches, onFork }: { branches: SuggestedBranch[]; 
         {branches.map((b, i) => (
           <button
             key={i}
-            onClick={() => onFork(b.title)}
+            onClick={() => onFork(b.title, b.reason)}
             className="grid grid-cols-[1fr_auto] items-center gap-3 rounded-md border border-rule bg-surface px-3 py-2.5 text-left hover:border-accent hover:bg-surface-2"
           >
             <span>
@@ -86,16 +91,29 @@ function SuggestedBranches({ branches, onFork }: { branches: SuggestedBranch[]; 
 
 export function LessonPane({
   concept,
+  concepts,
   path,
   topicTitle,
   onFork,
 }: {
   concept: ConceptRow;
+  concepts: ConceptRow[];
   path: string[];
   topicTitle: string;
-  onFork: (title: string) => void;
+  onFork: (title: string, summary?: string) => void;
 }) {
-  const { lesson, generating, error, retry } = useConceptLesson(concept, { path, topicTitle });
+  const siblings = concepts
+    .filter((c) => c.parentId === concept.parentId && c.id !== concept.id)
+    .map((c) => c.title);
+  const children = concepts.filter((c) => c.parentId === concept.id).map((c) => c.title);
+
+  const { lesson, generating, error, retry } = useConceptLesson(concept, {
+    topicTitle,
+    path,
+    summary: concept.summary,
+    siblings,
+    children,
+  });
   const [pop, setPop] = useState<{ term: Term; rect: DOMRect } | null>(null);
 
   return (
@@ -148,7 +166,7 @@ export function LessonPane({
           rect={pop.rect}
           onClose={() => setPop(null)}
           onFork={() => {
-            onFork(pop.term.term);
+            onFork(pop.term.term, pop.term.gloss);
             setPop(null);
           }}
         />

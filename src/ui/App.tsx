@@ -46,10 +46,10 @@ export function App() {
     });
   };
 
-  const handleFork = (title: string) => {
+  const handleFork = (title: string, summary?: string) => {
     if (!activeTopicId || !selectedConceptId) return;
     fork.mutate(
-      { topicId: activeTopicId, parentId: selectedConceptId, title },
+      { topicId: activeTopicId, parentId: selectedConceptId, title, summary },
       { onSuccess: (newId) => setSelectedConceptId(newId) }, // select it -> generates on visit
     );
   };

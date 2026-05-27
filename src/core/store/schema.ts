@@ -19,6 +19,8 @@ export const concepts = sqliteTable("concepts", {
     .references(() => topics.id),
   parentId: text("parent_id"),
   title: text("title").notNull(),
+  /** the outline's rationale for this concept — focus context for its lesson */
+  summary: text("summary"),
   status: text("status", { enum: ["queued", "current", "visited", "complete"] })
     .notNull()
     .default("queued"),

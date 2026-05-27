@@ -6,7 +6,7 @@ import { generateText, Output } from "ai";
 import { z } from "zod";
 import { getModel, MODELS } from "../ai/service";
 import { lessonRepo, conceptRepo, type ConceptRow } from "../store/repositories";
-import type { Block, SuggestedBranch } from "../types";
+import type { Block, SuggestedBranch, LensId } from "../types";
 
 const LessonSchema = z.object({
   subtitle: z.string().describe("one-line subtitle framing the lesson"),
@@ -20,7 +20,7 @@ const LessonSchema = z.object({
         terms: z
           .array(z.object({ term: z.string(), gloss: z.string() }))
           .optional()
-          .describe("for paragraphs only: key terms that appear verbatim in `text`, each with a one-line gloss, that a curious learner could branch into"),
+          .describe("for paragraphs only: key terms appearing verbatim in `text`, each with a one-line gloss, that a curious learner could branch into"),
       }),
     )
     .describe("6-12 blocks: mostly short paragraphs, optional section headers, maybe one callout"),
@@ -30,19 +30,34 @@ const LessonSchema = z.object({
 });
 
 export interface LessonContext {
-  path: string[];
   topicTitle: string;
+  /** breadcrumb of concept titles, root -> this concept */
+  path: string[];
+  /** this concept's focus (from the outline / a forked term's gloss) */
+  summary?: string | null;
+  /** peer concept titles taught in their own lessons */
+  siblings: string[];
+  /** sub-concept titles taught in their own lessons */
+  children: string[];
 }
 
 export async function generateLesson(concept: ConceptRow, ctx: LessonContext) {
+  const focus = ctx.summary ? `\nFocus (what this concept should cover): ${ctx.summary}` : "";
+  const siblings = ctx.siblings.length
+    ? `\nSibling concepts taught separately — do NOT re-explain these: ${ctx.siblings.join(", ")}.`
+    : "";
+  const children = ctx.children.length
+    ? `\nThis concept has sub-concepts taught in their own lessons: ${ctx.children.join(", ")}. Keep THIS lesson an orienting overview that motivates and connects them — don't fully dive into each.`
+    : "";
+
   const { output } = await generateText({
     model: getModel(MODELS.default),
     output: Output.object({ schema: LessonSchema }),
-    prompt: `You are a sharp, concrete tutor writing ONE focused lesson.
+    prompt: `You are a sharp, concrete tutor writing ONE focused lesson within a larger learning tree.
 
 Topic: "${ctx.topicTitle}"
 Path: ${ctx.path.join(" > ")}
-Concept to teach: "${concept.title}"
+Concept to teach: "${concept.title}"${focus}${siblings}${children}
 
 Write a tight lesson of 6-12 blocks. Use short paragraphs. Across the paragraphs,
 mark 2-5 key TERMS (each appearing verbatim in that paragraph's text) with a one-line
@@ -52,20 +67,20 @@ by suggesting 2-4 next concepts. Be concrete; no filler; no markdown.`,
   });
 
   const now = Date.now();
-  await lessonRepo.upsert({
+  const row = {
     conceptId: concept.id,
     title: concept.title,
     subtitle: output.subtitle,
     blocks: output.blocks as Block[],
     suggestedBranches: output.suggestedBranches as SuggestedBranch[],
-    lenses: ["notes", "quiz", "chat"],
+    lenses: ["notes", "quiz", "chat"] as LensId[],
     model: MODELS.default,
     generatedAt: now,
-  });
+  };
+  await lessonRepo.upsert(row);
   await conceptRepo.update(concept.id, {
     state: "ready",
     status: concept.status === "queued" ? "visited" : concept.status,
   });
-
-  return output;
+  return row;
 }

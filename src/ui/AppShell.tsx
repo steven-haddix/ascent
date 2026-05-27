@@ -136,7 +136,7 @@ interface AppShellProps {
   starting: boolean;
   startError?: string | null;
   onNewTopic: () => void;
-  onFork: (title: string) => void;
+  onFork: (title: string, summary?: string) => void;
 }
 
 export function AppShell(props: AppShellProps) {
@@ -172,6 +172,7 @@ export function AppShell(props: AppShellProps) {
             <LessonPane
               key={selected.id}
               concept={selected}
+              concepts={concepts}
               path={pathTo(concepts, selected.id)}
               topicTitle={topicTitle}
               onFork={onFork}
