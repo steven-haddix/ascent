@@ -4,6 +4,7 @@ import { ConceptTree } from "./ConceptTree";
 import { Trailhead } from "./Trailhead";
 import { LessonPane } from "./LessonPane";
 import { ChatDrawer } from "./ChatDrawer";
+import { PreviewPane } from "./PreviewPane";
 
 const THEMES = ["cream", "paper", "dark"] as const;
 type Theme = (typeof THEMES)[number];
@@ -192,11 +193,19 @@ export function AppShell(props: AppShellProps) {
           )}
         </main>
         <aside className="flex min-h-0 flex-col border-l border-rule bg-surface">
-          <EmptyPane
-            eyebrow="Preview"
-            title="Nothing pinned"
-            hint="Notes, quizzes, code, and more attach to the concept you're learning."
-          />
+          {selected ? (
+            <PreviewPane
+              key={selected.id}
+              concept={selected}
+              ctx={{ topicTitle, path: pathTo(concepts, selected.id) }}
+            />
+          ) : (
+            <EmptyPane
+              eyebrow="Preview"
+              title="Nothing pinned"
+              hint="Notes, quizzes, and more attach to the concept you're learning."
+            />
+          )}
         </aside>
       </div>
     </div>

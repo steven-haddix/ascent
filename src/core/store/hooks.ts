@@ -2,10 +2,11 @@
 // to these hooks, never to drizzle directly — keeping the swap-to-sync seam.
 import { useEffect, useState } from "react";
 import { QueryClient, useMutation, useQuery } from "@tanstack/react-query";
-import { topicRepo, conceptRepo, lessonRepo, chatRepo, type ConceptRow } from "./repositories";
+import { topicRepo, conceptRepo, lessonRepo, chatRepo, noteRepo, type ConceptRow } from "./repositories";
 import { startTopic } from "../generation/outline";
 import { generateLesson, type LessonContext, type PartialLesson } from "../generation/lesson";
 import { chat, type ChatContext } from "../generation/tutor";
+import { generateQuiz, type QuizQuestion } from "../generation/quiz";
 import { getTutorMode } from "../settings";
 
 export const queryClient = new QueryClient();
@@ -143,4 +144,36 @@ export function useChat(concept: ConceptRow | null, ctx: ChatContext) {
   };
 
   return { turns: turns.data ?? [], streaming, sending, send };
+}
+
+/** Notes for a concept. */
+export const useNotes = (conceptId: string | null) =>
+  useQuery({
+    queryKey: ["notes", conceptId],
+    queryFn: () => noteRepo.byConcept(conceptId!),
+    enabled: !!conceptId,
+  });
+
+export function useAddNote(conceptId: string) {
+  return useMutation({
+    mutationFn: (text: string) =>
+      noteRepo.create({ id: crypto.randomUUID(), conceptId, text, createdAt: Date.now() }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["notes", conceptId] }),
+  });
+}
+
+/** Quiz for a concept — generated on demand, held in the cache (not persisted). */
+export const useQuiz = (conceptId: string | null) =>
+  useQuery<QuizQuestion[] | null>({
+    queryKey: ["quiz", conceptId],
+    queryFn: () => null,
+    enabled: false,
+    initialData: null,
+  });
+
+export function useGenerateQuiz(concept: ConceptRow, topicTitle: string) {
+  return useMutation({
+    mutationFn: () => generateQuiz(concept, topicTitle),
+    onSuccess: (questions) => queryClient.setQueryData(["quiz", concept.id], questions),
+  });
 }
