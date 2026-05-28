@@ -5,6 +5,7 @@ import { App } from "./ui/App";
 import { queryClient } from "./core/store/hooks";
 import { pingAI } from "./core/ai/ping";
 import "./ui/styles/globals.css";
+import "katex/dist/katex.min.css"; // KaTeX math styles (eager + build-resolved; see katexCore)
 
 // Devtools diagnostic: run `pingAI()` in the console to test a minimal request
 // through the real transport (uses the stored key). Watch the [ascent:ping] logs.

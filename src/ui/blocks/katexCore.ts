@@ -1,6 +1,7 @@
-// KaTeX render core — isolated in its own module so it (and its CSS + fonts) land
-// in a lazily-imported chunk. Only lessons that actually contain math pay for it.
-import "katex/dist/katex.min.css";
+// KaTeX render core — JS only. The stylesheet is imported eagerly in main.tsx
+// (a static import the build resolves reliably); keeping the CSS import OUT of this
+// lazily-imported module avoids a dev-server resolution failure that would make the
+// whole module fail to load and silently fall back to raw LaTeX.
 import katex from "katex";
 
 export function renderLatex(latex: string, display: boolean): string {
