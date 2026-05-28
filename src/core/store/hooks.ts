@@ -123,6 +123,15 @@ export function useConceptLesson(concept: ConceptRow | null, ctx: LessonContext)
   };
 }
 
+/** Whether a lesson is currently generating for this concept — reactive, so a
+ *  tree row can show a loader even when that concept's LessonPane isn't mounted
+ *  (you navigated away while it generates in the background). */
+export function useLessonStreaming(conceptId: string): boolean {
+  const subscribe = useCallback((cb: () => void) => subscribeLessonStream(conceptId, cb), [conceptId]);
+  const getSnapshot = useCallback(() => getLessonStreamSnapshot(conceptId), [conceptId]);
+  return useSyncExternalStore(subscribe, getSnapshot)?.status === "streaming";
+}
+
 /** Branch-grounded chat for a concept: persisted turns + a streamed reply. */
 export function useChat(concept: ConceptRow | null, ctx: ChatContext) {
   const turns = useQuery({

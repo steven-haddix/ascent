@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { Tree, type NodeRendererProps } from "react-arborist";
+import { Tree, type NodeApi, type NodeRendererProps } from "react-arborist";
 import type { ConceptRow } from "../core/store/repositories";
+import { useLessonStreaming } from "../core/store/hooks";
 
 type TreeNode = ConceptRow & { children: TreeNode[] };
 
@@ -50,6 +51,64 @@ function StatusDot({ status }: { status: ConceptRow["status"] }) {
   );
 }
 
+/** One tree row. A real component (not an inline closure) so the streaming hook
+ *  is safe under react-arborist's row virtualization. */
+function NodeRow({
+  node,
+  style,
+  selectedId,
+  onSelect,
+}: {
+  node: NodeApi<TreeNode>;
+  style: React.CSSProperties;
+  selectedId: string | null;
+  onSelect: (id: string) => void;
+}) {
+  const c = node.data;
+  const selected = c.id === selectedId;
+  const loading = useLessonStreaming(c.id);
+  return (
+    <div
+      style={style}
+      onClick={() => onSelect(c.id)}
+      className={`flex h-7 cursor-pointer items-center gap-2 pr-2.5 text-[12.5px] ${
+        selected ? "bg-accent/10 font-medium text-ink" : "text-ink-2 hover:bg-surface-2 hover:text-ink"
+      }`}
+    >
+      {node.isLeaf ? (
+        <span className="inline-block h-3.5 w-3.5" />
+      ) : (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            node.toggle();
+          }}
+          className="grid h-3.5 w-3.5 place-items-center text-ink-3"
+        >
+          <svg width="8" height="8" viewBox="0 0 8 8" style={{ transform: node.isOpen ? "rotate(90deg)" : "none" }}>
+            <path d="M2 1 L6 4 L2 7" stroke="currentColor" strokeWidth="1.2" fill="none" />
+          </svg>
+        </button>
+      )}
+      <StatusDot status={c.status} />
+      <span className="flex-1 truncate">{c.title}</span>
+      {c.remedial && (
+        <span title="Remedial branch — from a teach-back gap" className="shrink-0 font-mono text-[10px] text-accent">
+          ↻
+        </span>
+      )}
+      {loading ? (
+        <span
+          title="Generating lesson…"
+          className="h-3 w-3 shrink-0 animate-spin rounded-full border border-rule border-t-accent"
+        />
+      ) : (
+        c.mastery > 0 && <span className="font-mono text-[10px] text-ink-3">{Math.round(c.mastery * 100)}</span>
+      )}
+    </div>
+  );
+}
+
 export function ConceptTree({
   concepts,
   selectedId,
@@ -62,43 +121,9 @@ export function ConceptTree({
   const data = buildTree(concepts);
   const [ref, { width, height }] = useSize();
 
-  const Node = ({ node, style }: NodeRendererProps<TreeNode>) => {
-    const c = node.data;
-    const selected = c.id === selectedId;
-    return (
-      <div
-        style={style}
-        onClick={() => onSelect(c.id)}
-        className={`flex h-7 cursor-pointer items-center gap-2 pr-2.5 text-[12.5px] ${
-          selected ? "bg-accent/10 font-medium text-ink" : "text-ink-2 hover:bg-surface-2 hover:text-ink"
-        }`}
-      >
-        {node.isLeaf ? (
-          <span className="inline-block h-3.5 w-3.5" />
-        ) : (
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              node.toggle();
-            }}
-            className="grid h-3.5 w-3.5 place-items-center text-ink-3"
-          >
-            <svg width="8" height="8" viewBox="0 0 8 8" style={{ transform: node.isOpen ? "rotate(90deg)" : "none" }}>
-              <path d="M2 1 L6 4 L2 7" stroke="currentColor" strokeWidth="1.2" fill="none" />
-            </svg>
-          </button>
-        )}
-        <StatusDot status={c.status} />
-        <span className="flex-1 truncate">{c.title}</span>
-        {c.remedial && (
-          <span title="Remedial branch — from a teach-back gap" className="shrink-0 font-mono text-[10px] text-accent">
-            ↻
-          </span>
-        )}
-        {c.mastery > 0 && <span className="font-mono text-[10px] text-ink-3">{Math.round(c.mastery * 100)}</span>}
-      </div>
-    );
-  };
+  const Node = ({ node, style }: NodeRendererProps<TreeNode>) => (
+    <NodeRow node={node} style={style} selectedId={selectedId} onSelect={onSelect} />
+  );
 
   return (
     <div ref={ref} className="h-full pl-3.5">
