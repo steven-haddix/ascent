@@ -79,7 +79,7 @@ export function TeachLens({ concept, ctx }: LensProps) {
   };
   const again = () => {
     teach.reset();
-    setText("");
+    setText(shownText); // pre-fill the graded explanation so they can refine, not retype
     setComposing(true);
   };
 
