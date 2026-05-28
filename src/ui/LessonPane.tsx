@@ -4,6 +4,7 @@ import type { Block, SuggestedBranch, Term } from "../core/types";
 import { useConceptLesson } from "../core/store/hooks";
 import { TermPopover } from "./TermPopover";
 import { ErrorBoundary } from "./ErrorBoundary";
+import { CodeBlock } from "./code/CodeBlock";
 
 const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
@@ -225,6 +226,8 @@ export function LessonPane({
                 <SectionHead key={i} block={b} />
               ) : b.kind === "callout" ? (
                 <Callout key={i} block={b} />
+              ) : b.kind === "code" ? (
+                <CodeBlock key={i} block={b} />
               ) : (
                 <Paragraph key={i} block={b} onTerm={(t, r) => setPop({ term: t, rect: r })} />
               ),

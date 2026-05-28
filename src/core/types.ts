@@ -17,8 +17,8 @@ export interface Term {
 /** A typed lesson content block. Flat shape (kind + optional fields) keeps it
  *  reliable for structured generation and simple to render. */
 export interface Block {
-  kind: "paragraph" | "callout" | "section";
-  /** paragraph body or callout body */
+  kind: "paragraph" | "callout" | "section" | "code";
+  /** paragraph body, callout body, or code source (for `code`) */
   text?: string;
   /** callout label (e.g. "Notice") or section label */
   label?: string;
@@ -26,6 +26,8 @@ export interface Block {
   hint?: string;
   /** for paragraphs: key terms in the text a learner can fork into */
   terms?: Term[];
+  /** for `code`: language hint (e.g. "python", "javascript", "bash") */
+  language?: string;
 }
 
 export interface SuggestedBranch {

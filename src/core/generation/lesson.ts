@@ -12,14 +12,18 @@ const LessonSchema = z.object({
   blocks: z
     .array(
       z.object({
-        kind: z.enum(["paragraph", "callout", "section"]),
-        text: z.string().optional().describe("paragraph body, or callout body"),
+        kind: z.enum(["paragraph", "callout", "section", "code"]),
+        text: z.string().optional().describe("paragraph body, callout body, or source for a `code` block"),
         label: z.string().optional().describe("callout label (e.g. 'Notice') or section label"),
         hint: z.string().optional().describe("optional one-line section hint"),
         terms: z
           .array(z.object({ term: z.string(), gloss: z.string() }))
           .optional()
           .describe("for paragraphs only: key terms appearing verbatim in `text`, each with a one-line gloss, that a curious learner could branch into"),
+        language: z
+          .string()
+          .optional()
+          .describe("for `code` blocks ONLY: the source language — 'python', 'javascript', 'typescript', 'bash', or 'json'"),
       }),
     )
     .describe(
@@ -76,9 +80,10 @@ HOW TO EXPLAIN (this matters more than how much you cover):
 - Build up in small steps, one idea per paragraph. Introduce a piece, make it land, then add
   the next. Never stack three new ideas into one dense paragraph.
 - Show, don't just state. Include at least one concrete worked example — small real numbers,
-  a tiny scenario, or a case walked through step by step — and use everyday analogies where
-  they genuinely help. The moment you introduce notation or a formula, say in words what each
-  part means and why it's there.
+  a tiny scenario, a case walked through step by step, or (for programming / ML / scripting
+  topics) a tight runnable code snippet — and use everyday analogies where they genuinely
+  help. The moment you introduce notation or a formula, say in words what each part means
+  and why it's there.
 - Keep the rigor. This is NOT "explain like I'm five": stay precise and correct, name things
   properly — just make the path to understanding gentle, and unpack jargon the instant you use it.
 - Be warm and direct, like you're talking to one curious person. No filler, no throat-clearing,
@@ -93,7 +98,12 @@ FORMAT:
 - A "callout" is RARE (at most one): reserve it for a single standout intuition or "watch out",
   with a short label ("Intuition", "Notice", "Watch out") and a real sentence of body. Omit it if
   nothing earns it; never label one "load-bearing". Put examples in normal paragraphs, not callouts.
-- Every block must have content: paragraph and callout need non-empty text, section needs a label.
+- A "code" block contains a runnable code snippet. Use it ONLY when seeing real code helps
+  understanding (programming, ML, scripting, data work). Keep snippets short and focused
+  (5-30 lines), self-contained where possible. Set \`language\` to the source language
+  ("python", "javascript", "typescript", "bash", or "json"). One tight illustrative example
+  beats five. For non-technical subjects (history, music, biology essays, etc.), use NO code blocks.
+- Every block must have content: paragraph and callout need non-empty text, section needs a label, code needs non-empty text.
 - Finish by suggesting 2-4 next concepts. No markdown.`,
   });
 
@@ -103,13 +113,20 @@ FORMAT:
   const output = await result.output;
 
   const now = Date.now();
+  const blocks = output.blocks as Block[];
+  // The Code lens is declared only when there's actually code to surface — keeps
+  // the right pane uncluttered for non-technical lessons.
+  const hasCode = blocks.some((b) => b.kind === "code");
+  const lenses: LensId[] = hasCode
+    ? ["notes", "quiz", "chat", "teach", "code"]
+    : ["notes", "quiz", "chat", "teach"];
   const row = {
     conceptId: concept.id,
     title: concept.title,
     subtitle: output.subtitle,
-    blocks: output.blocks as Block[],
+    blocks,
     suggestedBranches: output.suggestedBranches as SuggestedBranch[],
-    lenses: ["notes", "quiz", "chat", "teach"] as LensId[],
+    lenses,
     model: MODELS.default,
     generatedAt: now,
   };
