@@ -1,7 +1,7 @@
 // Reactive read/write layer (TanStack Query over the repositories). The UI binds
 // to these hooks, never to drizzle directly — keeping the swap-to-sync seam.
-import { useEffect, useState } from "react";
-import { QueryClient, useMutation, useQuery } from "@tanstack/react-query";
+import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import {
   topicRepo,
   conceptRepo,
@@ -12,17 +12,23 @@ import {
   type ConceptRow,
 } from "./repositories";
 import { startTopic } from "../generation/outline";
-import { generateLesson, type LessonContext, type PartialLesson } from "../generation/lesson";
+import type { LessonContext } from "../generation/lesson";
+import {
+  ensureLessonStream,
+  getLessonStreamSnapshot,
+  subscribeLessonStream,
+} from "../generation/lessonStreams";
 import { chat, type ChatContext } from "../generation/tutor";
 import { generateQuiz, type QuizQuestion } from "../generation/quiz";
 import { gradeTeachBack, scoreFromRubric, type TeachContext } from "../generation/teachback";
 import type { TeachAudience } from "../types";
 import { getTutorMode } from "../settings";
+import { queryClient } from "./queryClient";
 
 const clamp01 = (n: number) => Math.max(0, Math.min(1, n));
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
-export const queryClient = new QueryClient();
+export { queryClient };
 
 export const useTopics = (enabled = true) =>
   useQuery({ queryKey: ["topics"], queryFn: () => topicRepo.list(), enabled });
@@ -79,8 +85,11 @@ export function useForkConcept() {
   });
 }
 
-/** A concept's lesson: fetched if present, generated on first visit.
- *  Render LessonPane with key={concept.id} so this hook's state is per-concept. */
+/** A concept's lesson: read if present, generated (streamed) on first visit.
+ *  Generation lives in the lessonStreams registry — outside React — so a stream
+ *  survives navigating away and is deduplicated: returning to a concept that is
+ *  still generating attaches to the live stream instead of starting a duplicate.
+ *  Render LessonPane with key={concept.id} so this hook is per-concept. */
 export function useConceptLesson(concept: ConceptRow | null, ctx: LessonContext) {
   const lesson = useQuery({
     queryKey: ["lesson", concept?.id],
@@ -89,31 +98,28 @@ export function useConceptLesson(concept: ConceptRow | null, ctx: LessonContext)
     enabled: !!concept,
   });
 
-  const [partial, setPartial] = useState<PartialLesson | null>(null);
-  const gen = useMutation({
-    mutationFn: () => generateLesson(concept!, ctx, (p) => setPartial(p)),
-    onSuccess: (row) => {
-      // Write straight into the cache so the final lesson renders instantly.
-      setPartial(null);
-      queryClient.setQueryData(["lesson", concept?.id], row);
-      queryClient.invalidateQueries({ queryKey: ["concepts"] });
-    },
-    onError: () => setPartial(null),
-  });
+  const id = concept?.id ?? "";
+  const subscribe = useCallback((cb: () => void) => subscribeLessonStream(id, cb), [id]);
+  const getSnapshot = useCallback(() => getLessonStreamSnapshot(id), [id]);
+  const stream = useSyncExternalStore(subscribe, getSnapshot);
 
+  // Auto-generate on first visit only if absent AND no stream is already tracked for
+  // this concept (the registry also dedupes; this avoids even calling it on return).
   useEffect(() => {
-    if (concept && lesson.isFetched && lesson.data === null && !gen.isPending && !gen.isError) {
-      gen.mutate();
+    if (concept && lesson.isFetched && lesson.data === null && !stream) {
+      ensureLessonStream(concept, ctx);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [concept?.id, lesson.isFetched, lesson.data]);
+  }, [concept?.id, lesson.isFetched, lesson.data, stream]);
 
   return {
     lesson: lesson.data ?? null,
-    partial,
-    generating: gen.isPending,
-    error: gen.error ? ((gen.error as Error).message ?? String(gen.error)) : null,
-    retry: () => gen.mutate(),
+    partial: stream?.status === "streaming" ? stream.partial : null,
+    generating: stream?.status === "streaming",
+    error: stream?.status === "error" ? stream.error : null,
+    retry: () => {
+      if (concept) ensureLessonStream(concept, ctx);
+    },
   };
 }
 
