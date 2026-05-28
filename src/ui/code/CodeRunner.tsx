@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { HighlightedCode } from "./HighlightedCode";
 import { runPython, type PythonResult } from "../../core/code/python";
 
@@ -19,6 +19,16 @@ export function CodeRunner({
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState<string | null>(null);
   const [output, setOutput] = useState<PythonResult | null>(null);
+
+  // The chat agent (setLessonCode) can replace this snippet in place. `code` was
+  // seeded from `initial` only on mount, so when the incoming snippet changes,
+  // resync the editor buffer and drop stale output — otherwise the runner keeps
+  // showing/running the old code. User edits to an unchanged snippet are untouched.
+  useEffect(() => {
+    setCode(initial);
+    setOutput(null);
+    setEditing(false);
+  }, [initial]);
 
   const canRun = language.toLowerCase() === "python" || language.toLowerCase() === "py";
 
