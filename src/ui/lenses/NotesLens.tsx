@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNotes, useAddNote } from "../../core/store/hooks";
 import type { LensProps } from "./types";
 
@@ -17,6 +17,15 @@ export function NotesLens({ concept }: LensProps) {
   const add = useAddNote(concept.id);
   const [val, setVal] = useState("");
 
+  // Grow the input with its content, up to a cap (then it scrolls).
+  const taRef = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    const el = taRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 320)}px`;
+  }, [val]);
+
   const submit = () => {
     const t = val.trim();
     if (!t) return;
@@ -29,6 +38,7 @@ export function NotesLens({ concept }: LensProps) {
     <div className="flex h-full flex-col">
       <div className="border-b border-rule p-3">
         <textarea
+          ref={taRef}
           rows={2}
           value={val}
           placeholder="Jot a note on this concept…"
@@ -36,7 +46,7 @@ export function NotesLens({ concept }: LensProps) {
           onKeyDown={(e) => {
             if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) submit();
           }}
-          className="w-full resize-none rounded-md border border-rule-strong bg-surface-2 px-2.5 py-1.5 text-sm text-ink outline-none focus:border-accent"
+          className="max-h-80 w-full resize-none overflow-y-auto rounded-md border border-rule-strong bg-surface-2 px-2.5 py-1.5 text-sm text-ink outline-none focus:border-accent"
         />
         <div className="mt-2 flex items-center justify-between">
           <span className="text-[10.5px] text-ink-3">⌘↵ to save</span>
