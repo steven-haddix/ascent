@@ -164,7 +164,7 @@ export function LessonPane({
     .map((c) => c.title);
   const children = concepts.filter((c) => c.parentId === concept.id).map((c) => c.title);
 
-  const { lesson, partial, generating, error, retry } = useConceptLesson(concept, {
+  const { lesson, partial, generating, error, retry, stop } = useConceptLesson(concept, {
     topicTitle,
     path,
     summary: concept.summary,
@@ -203,6 +203,12 @@ export function LessonPane({
         <div className="mt-8 flex items-center gap-2 text-sm text-ink-3">
           <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />
           Generating this lesson…
+          <button
+            onClick={stop}
+            className="ml-1 rounded border border-rule px-1.5 py-0.5 text-[11px] text-ink-3 hover:border-rule-strong hover:text-ink"
+          >
+            Stop
+          </button>
         </div>
       )}
       {error && !generating && (
@@ -240,6 +246,12 @@ export function LessonPane({
               <div className="mt-2 flex items-center gap-2 font-sans text-xs text-ink-3">
                 <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />
                 streaming…
+                <button
+                  onClick={stop}
+                  className="rounded border border-rule px-1.5 py-0.5 text-[11px] text-ink-3 hover:border-rule-strong hover:text-ink"
+                >
+                  Stop
+                </button>
               </div>
             )}
             {!generating && <SuggestedBranches branches={branches} onFork={onFork} />}

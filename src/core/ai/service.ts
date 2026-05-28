@@ -44,7 +44,9 @@ async function streamingFetch(
   method: string,
   headers: Record<string, string>,
   body: string | null,
+  signal?: AbortSignal | null,
 ): Promise<Response> {
+  if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
   let controller!: ReadableStreamDefaultController<Uint8Array>;
   const stream = new ReadableStream<Uint8Array>({
     start(c) {
@@ -52,15 +54,26 @@ async function streamingFetch(
     },
   });
   let closed = false;
+  // Aborting (idle watchdog or manual Stop) errors the body stream, which unblocks
+  // the AI SDK's reader so result.output / partialOutputStream reject instead of
+  // hanging forever on a stalled provider connection.
+  const onAbort = () => {
+    if (closed) return;
+    closed = true;
+    controller.error(new DOMException("Aborted", "AbortError"));
+  };
+  signal?.addEventListener("abort", onAbort, { once: true });
   const channel = new Channel<StreamMsg>();
   channel.onmessage = (msg) => {
     if (closed) return;
     if (msg.event === "chunk") controller.enqueue(base64ToBytes(msg.data));
     else if (msg.event === "done") {
       closed = true;
+      signal?.removeEventListener("abort", onAbort);
       controller.close();
     } else {
       closed = true;
+      signal?.removeEventListener("abort", onAbort);
       controller.error(new Error(msg.message));
     }
   };
@@ -83,7 +96,7 @@ const tauriFetch = async (input: RequestInfo | URL, init?: RequestInit): Promise
     }
   }
 
-  if (wantsStream) return streamingFetch(url, method, headers, body);
+  if (wantsStream) return streamingFetch(url, method, headers, body, init?.signal);
 
   const res = await invoke<AiResponse>("ai_request", { url, method, headers, body });
   return new Response(res.body, { status: res.status, headers: res.headers });

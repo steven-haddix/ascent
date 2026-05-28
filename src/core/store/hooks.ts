@@ -15,6 +15,7 @@ import { startTopic } from "../generation/outline";
 import type { LessonContext } from "../generation/lesson";
 import {
   ensureLessonStream,
+  cancelLessonStream,
   getLessonStreamSnapshot,
   subscribeLessonStream,
 } from "../generation/lessonStreams";
@@ -119,6 +120,9 @@ export function useConceptLesson(concept: ConceptRow | null, ctx: LessonContext)
     error: stream?.status === "error" ? stream.error : null,
     retry: () => {
       if (concept) ensureLessonStream(concept, ctx);
+    },
+    stop: () => {
+      if (concept) cancelLessonStream(concept.id);
     },
   };
 }

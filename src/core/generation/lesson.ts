@@ -58,6 +58,7 @@ export async function generateLesson(
   concept: ConceptRow,
   ctx: LessonContext,
   onPartial?: (partial: PartialLesson) => void,
+  signal?: AbortSignal,
 ) {
   const focus = ctx.summary ? `\nFocus (what this concept should cover): ${ctx.summary}` : "";
   const siblings = ctx.siblings.length
@@ -70,6 +71,7 @@ export async function generateLesson(
   const result = streamText({
     model: getModel(),
     output: Output.object({ schema: LessonSchema }),
+    abortSignal: signal,
     prompt: `You are an exceptional tutor — the kind whose explanations make a hard idea
 suddenly click — writing ONE focused lesson within a larger learning tree. Your goal is
 understanding, not coverage. Do NOT write like an encyclopedia.
@@ -118,10 +120,17 @@ FORMAT:
 - Finish by suggesting 2-4 next concepts. No markdown.`,
   });
 
+  // Capture output now and pre-attach a catch: on abort we throw out of the
+  // for-await below without awaiting output, and an un-awaited rejection would
+  // surface as an unhandled promise rejection. `await` still sees a rejection on
+  // the success path (e.g. a parse error), so real failures still propagate.
+  const outputPromise = result.output;
+  void outputPromise.then(undefined, () => {});
+
   for await (const partial of result.partialOutputStream) {
     onPartial?.(partial as unknown as PartialLesson);
   }
-  const output = await result.output;
+  const output = await outputPromise;
 
   const now = Date.now();
   const blocks = output.blocks as Block[];
