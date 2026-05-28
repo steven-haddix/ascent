@@ -2,7 +2,7 @@
 // front (fast, navigable); lesson bodies generate lazily on visit in M3.
 import { generateText, Output } from "ai";
 import { z } from "zod";
-import { getModel, MODELS } from "../ai/service";
+import { getModel } from "../ai/service";
 import { topicRepo, conceptRepo } from "../store/repositories";
 
 const OutlineSchema = z.object({
@@ -24,7 +24,7 @@ export type OutlineConcept = z.infer<typeof OutlineSchema>["concepts"][number];
 
 export async function outlineTopic(title: string): Promise<OutlineConcept[]> {
   const { output } = await generateText({
-    model: getModel(MODELS.default),
+    model: getModel(),
     output: Output.object({ schema: OutlineSchema }),
     prompt: `You are mapping a subject into a learning tree for a curious learner.
 

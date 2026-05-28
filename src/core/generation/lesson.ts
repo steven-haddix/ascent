@@ -3,7 +3,8 @@
 // then persists the complete, validated result.
 import { streamText, Output } from "ai";
 import { z } from "zod";
-import { getModel, MODELS } from "../ai/service";
+import { getModel } from "../ai/service";
+import { getModelId } from "../settings";
 import { lessonRepo, conceptRepo, type ConceptRow } from "../store/repositories";
 import type { Block, SuggestedBranch, LensId } from "../types";
 
@@ -67,7 +68,7 @@ export async function generateLesson(
     : "";
 
   const result = streamText({
-    model: getModel(MODELS.default),
+    model: getModel(),
     output: Output.object({ schema: LessonSchema }),
     prompt: `You are an exceptional tutor — the kind whose explanations make a hard idea
 suddenly click — writing ONE focused lesson within a larger learning tree. Your goal is
@@ -137,7 +138,7 @@ FORMAT:
     blocks,
     suggestedBranches: output.suggestedBranches as SuggestedBranch[],
     lenses,
-    model: MODELS.default,
+    model: getModelId(),
     generatedAt: now,
   };
   await lessonRepo.upsert(row);

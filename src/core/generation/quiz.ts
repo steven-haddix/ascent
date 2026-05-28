@@ -3,7 +3,7 @@
 // session and can be regenerated for a fresh set.
 import { generateText, Output } from "ai";
 import { z } from "zod";
-import { getModel, MODELS } from "../ai/service";
+import { getModel } from "../ai/service";
 import type { ConceptRow } from "../store/repositories";
 
 const QuizSchema = z.object({
@@ -23,7 +23,7 @@ export type QuizQuestion = z.infer<typeof QuizSchema>["questions"][number];
 
 export async function generateQuiz(concept: ConceptRow, topicTitle: string): Promise<QuizQuestion[]> {
   const { output } = await generateText({
-    model: getModel(MODELS.default),
+    model: getModel(),
     output: Output.object({ schema: QuizSchema }),
     prompt: `Write a 2-4 question multiple-choice quick-check on "${concept.title}" (within "${topicTitle}").
 Each question has 3-4 choices; set answerIndex to the correct one (0-based); add a one-line

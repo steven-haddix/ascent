@@ -4,7 +4,7 @@
 // be reliable, and the app (not the model) owns the mastery math downstream.
 import { generateText, Output } from "ai";
 import { z } from "zod";
-import { getModel, MODELS } from "../ai/service";
+import { getModel } from "../ai/service";
 import type { ConceptRow } from "../store/repositories";
 import type { RubricScores, TeachAnnotation, TeachGap, TeachAudience } from "../types";
 
@@ -84,7 +84,7 @@ export async function gradeTeachBack(
   const who = AUDIENCE_LABEL[audience];
   const focus = ctx.summary ? `\nWhat this concept is about: ${ctx.summary}` : "";
   const { output } = await generateText({
-    model: getModel(MODELS.default),
+    model: getModel(),
     output: Output.object({ schema: GradeSchema }),
     prompt: `You are a rigorous but encouraging examiner running a Feynman "teach-back".
 A learner is studying "${concept.title}" within "${ctx.topicTitle}" (${ctx.path.join(" > ")}).${focus}

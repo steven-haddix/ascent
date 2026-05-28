@@ -6,6 +6,7 @@
 // Provider-agnostic: other providers slot into getModel() later.
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { invoke, Channel } from "@tauri-apps/api/core";
+import { getModelId } from "../settings";
 
 interface AiResponse {
   status: number;
@@ -88,14 +89,13 @@ const tauriFetch = async (input: RequestInfo | URL, init?: RequestInit): Promise
   return new Response(res.body, { status: res.status, headers: res.headers });
 };
 
-export const MODELS = {
-  flagship: "claude-opus-4-7",
-  default: "claude-sonnet-4-6",
-  fast: "claude-haiku-4-5-20251001",
-} as const;
+// Re-exported so existing call sites keep importing MODELS from the service.
+export { MODELS } from "./models";
 
-/** Provider-agnostic model factory. Anthropic for now. */
-export function getModel(modelId: string = MODELS.default) {
+/** Provider-agnostic model factory. Anthropic for now. Defaults to the model the
+ *  user picked in Settings (getModelId), so all generation honors that choice
+ *  unless a call passes an explicit id. */
+export function getModel(modelId: string = getModelId()) {
   const anthropic = createAnthropic({ apiKey: "tauri-managed", fetch: tauriFetch });
   return anthropic(modelId);
 }

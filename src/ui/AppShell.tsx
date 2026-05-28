@@ -5,25 +5,14 @@ import { Trailhead } from "./Trailhead";
 import { LessonPane } from "./LessonPane";
 import { ChatDrawer } from "./ChatDrawer";
 import { PreviewPane } from "./PreviewPane";
+import { Settings } from "./Settings";
+import { THEMES, getTheme, setTheme as persistTheme, applyTheme, type Theme } from "../core/settings";
 
-const THEMES = ["cream", "paper", "dark"] as const;
-type Theme = (typeof THEMES)[number];
-
-function applyTheme(theme: Theme) {
-  document.documentElement.dataset.theme = theme;
-  document.documentElement.classList.toggle("dark", theme === "dark");
-  localStorage.setItem("ascent-theme", theme);
-}
-
-function ThemeToggle() {
-  const [theme, setTheme] = useState<Theme>(
-    () => (localStorage.getItem("ascent-theme") as Theme) || "cream",
-  );
-  useEffect(() => applyTheme(theme), [theme]);
+function ThemeToggle({ theme, onChange }: { theme: Theme; onChange: (t: Theme) => void }) {
   return (
     <button
-      title={`Theme: ${theme}`}
-      onClick={() => setTheme(THEMES[(THEMES.indexOf(theme) + 1) % THEMES.length])}
+      title={`Theme: ${theme} — click to cycle`}
+      onClick={() => onChange(THEMES[(THEMES.indexOf(theme) + 1) % THEMES.length])}
       className="grid h-7 w-7 place-items-center rounded-md border border-transparent text-ink-3 hover:border-rule hover:bg-surface-2 hover:text-ink"
     >
       <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor">
@@ -34,7 +23,15 @@ function ThemeToggle() {
   );
 }
 
-function Topbar() {
+function Topbar({
+  theme,
+  onChangeTheme,
+  onOpenSettings,
+}: {
+  theme: Theme;
+  onChangeTheme: (t: Theme) => void;
+  onOpenSettings: () => void;
+}) {
   return (
     <header className="grid h-[52px] shrink-0 grid-cols-[280px_1fr_280px] items-center border-b border-rule bg-surface px-4">
       <div className="flex items-center gap-2.5">
@@ -62,8 +59,17 @@ function Topbar() {
         </button>
       </div>
       <div className="flex items-center justify-end gap-2.5">
-        <ThemeToggle />
-        <div className="grid h-7 w-7 place-items-center rounded-full bg-ink text-[10.5px] font-semibold text-surface">⛰</div>
+        <ThemeToggle theme={theme} onChange={onChangeTheme} />
+        <button
+          onClick={onOpenSettings}
+          title="Settings"
+          className="grid h-7 w-7 place-items-center rounded-md border border-transparent text-ink-3 hover:border-rule hover:bg-surface-2 hover:text-ink"
+        >
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2">
+            <circle cx="8" cy="8" r="2.2" />
+            <path d="M8 1.5v2 M8 12.5v2 M1.5 8h2 M12.5 8h2 M3.6 3.6l1.4 1.4 M11 11l1.4 1.4 M12.4 3.6l-1.4 1.4 M5 11l-1.4 1.4" />
+          </svg>
+        </button>
       </div>
     </header>
   );
@@ -161,9 +167,21 @@ export function AppShell(props: AppShellProps) {
   // matching scroll room beneath its content (you can always scroll past it).
   const [chatHeight, setChatHeight] = useState(72);
 
+  // Theme is owned here so the topbar toggle and the Settings panel stay in sync.
+  const [theme, setThemeState] = useState<Theme>(() => getTheme());
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const changeTheme = (t: Theme) => {
+    setThemeState(t);
+    persistTheme(t); // writes localStorage + applies to <html>
+  };
+  useEffect(() => {
+    applyTheme(theme); // ensure <html> matches on mount (main.tsx also applies pre-paint)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   return (
     <div className="flex h-screen flex-col">
-      <Topbar />
+      <Topbar theme={theme} onChangeTheme={changeTheme} onOpenSettings={() => setSettingsOpen(true)} />
       <div className="grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)] grid-cols-[minmax(220px,260px)_minmax(0,1fr)_minmax(360px,440px)]">
         <Sidebar
           concepts={concepts}
@@ -214,6 +232,9 @@ export function AppShell(props: AppShellProps) {
           )}
         </aside>
       </div>
+      {settingsOpen && (
+        <Settings theme={theme} onChangeTheme={changeTheme} onClose={() => setSettingsOpen(false)} />
+      )}
     </div>
   );
 }

@@ -5,7 +5,7 @@
 // highlighted block appear/update without a full regenerate.
 import { streamText, tool, stepCountIs } from "ai";
 import { z } from "zod";
-import { getModel, MODELS } from "../ai/service";
+import { getModel } from "../ai/service";
 import { lessonRepo, type ConceptRow } from "../store/repositories";
 import { queryClient } from "../store/queryClient";
 import { isLessonStreaming } from "./lessonStreams";
@@ -159,7 +159,7 @@ export async function chat(
   };
 
   const result = streamText({
-    model: getModel(MODELS.default),
+    model: getModel(),
     system,
     messages,
     tools,
