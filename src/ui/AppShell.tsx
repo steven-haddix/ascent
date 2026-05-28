@@ -65,9 +65,19 @@ function Topbar({
           title="Settings"
           className="grid h-7 w-7 place-items-center rounded-md border border-transparent text-ink-3 hover:border-rule hover:bg-surface-2 hover:text-ink"
         >
-          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2">
-            <circle cx="8" cy="8" r="2.2" />
-            <path d="M8 1.5v2 M8 12.5v2 M1.5 8h2 M12.5 8h2 M3.6 3.6l1.4 1.4 M11 11l1.4 1.4 M12.4 3.6l-1.4 1.4 M5 11l-1.4 1.4" />
+          <svg
+            width="15"
+            height="15"
+            viewBox="0 0 16 16"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.2"
+            strokeLinecap="round"
+          >
+            <path d="M2 4h12 M2 8h12 M2 12h12" />
+            <circle cx="6" cy="4" r="1.7" fill="currentColor" stroke="none" />
+            <circle cx="10.5" cy="8" r="1.7" fill="currentColor" stroke="none" />
+            <circle cx="5" cy="12" r="1.7" fill="currentColor" stroke="none" />
           </svg>
         </button>
       </div>
