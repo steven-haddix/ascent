@@ -54,10 +54,12 @@ async function streamingFetch(
     },
   });
   let closed = false;
-  // Aborting (idle watchdog or manual Stop) errors the body stream, which unblocks
-  // the AI SDK's reader so result.output / partialOutputStream reject instead of
-  // hanging forever on a stalled provider connection.
+  let rejectHead: ((reason: unknown) => void) | null = null;
+  // Aborting (idle watchdog or manual Stop) both errors the body stream AND rejects
+  // the head wait below — so a stall BEFORE the first byte (e.g. a very slow
+  // time-to-first-byte) is recoverable instead of hanging forever on the pending invoke.
   const onAbort = () => {
+    rejectHead?.(new DOMException("Aborted", "AbortError"));
     if (closed) return;
     closed = true;
     controller.error(new DOMException("Aborted", "AbortError"));
@@ -77,7 +79,13 @@ async function streamingFetch(
       controller.error(new Error(msg.message));
     }
   };
-  const head = await invoke<StreamHead>("ai_stream", { channel, url, method, headers, body });
+  // Race the head invoke against abort: the watchdog can fire while we're still
+  // waiting for response headers (no stream has started yet).
+  const head = await new Promise<StreamHead>((resolve, reject) => {
+    rejectHead = reject;
+    invoke<StreamHead>("ai_stream", { channel, url, method, headers, body }).then(resolve, reject);
+  });
+  rejectHead = null;
   return new Response(stream, { status: head.status, headers: head.headers });
 }
 

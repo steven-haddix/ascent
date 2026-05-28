@@ -49,8 +49,8 @@ const LessonSchema = z.object({
             z.object({
               name: z.string().optional().describe("series label (shown in the legend)"),
               points: z
-                .array(z.object({ x: z.union([z.number(), z.string()]), y: z.number() }))
-                .describe("data points; x is a number for line/scatter/area or a category label for bar"),
+                .array(z.object({ x: z.string(), y: z.number() }))
+                .describe('data points; x is a number written as a string (e.g. "0.5") for line/scatter/area, or a short category label for bar; y is a number'),
             }),
           )
           .optional()
