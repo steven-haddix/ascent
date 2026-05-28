@@ -8,6 +8,7 @@ import { CodeBlock } from "./code/CodeBlock";
 import { TableBlock } from "./blocks/TableBlock";
 import { MathBlock, InlineMath } from "./blocks/MathBlock";
 import { ChartBlock } from "./blocks/ChartBlock";
+import { DiagramBlock } from "./blocks/DiagramBlock";
 
 /** A block is renderable once it has the content its kind needs — guards against
  *  empty or half-streamed blocks. */
@@ -46,6 +47,8 @@ function renderBlock(block: Block, key: number, onTerm: (t: Term, r: DOMRect) =>
       return <MathBlock key={key} block={block} />;
     case "chart":
       return <ChartBlock key={key} block={block} />;
+    case "diagram":
+      return <DiagramBlock key={key} block={block} />;
     default:
       return <Paragraph key={key} block={block} onTerm={onTerm} />;
   }

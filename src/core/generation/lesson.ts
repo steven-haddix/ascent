@@ -13,11 +13,11 @@ const LessonSchema = z.object({
   blocks: z
     .array(
       z.object({
-        kind: z.enum(["paragraph", "callout", "section", "code", "table", "math", "chart"]),
+        kind: z.enum(["paragraph", "callout", "section", "code", "table", "math", "chart", "diagram"]),
         text: z
           .string()
           .optional()
-          .describe("paragraph/callout body, `code` source, or LaTeX (no delimiters) for a `math` block"),
+          .describe("paragraph/callout body, `code` source, LaTeX (no delimiters) for `math`, or Mermaid source for `diagram`"),
         label: z.string().optional().describe("callout label (e.g. 'Notice') or section label"),
         hint: z.string().optional().describe("optional one-line section hint"),
         terms: z
@@ -157,6 +157,11 @@ FORMAT:
   \`xLabel\` / \`yLabel\`. Data may be ILLUSTRATIVE — the shape of a sigmoid, a learning curve, a
   rough comparison — kept small (a handful of points) and representative, not precise. Use a
   chart only when a shape or comparison genuinely aids understanding; refer to it in the prose.
+- A "diagram" block renders a Mermaid diagram (\`text\` = Mermaid source) — use it to SHOW
+  structure a picture clarifies: a process or pipeline (flowchart \`graph TD\`), an interaction
+  over time (\`sequenceDiagram\`), a state machine (\`stateDiagram-v2\`), relationships
+  (\`mindmap\`), or events (\`timeline\`). Keep it focused — a handful of nodes. Use VALID Mermaid
+  syntax only. Optional \`title\` caption; refer to it in the prose.
 - Every block must have content: paragraph and callout need non-empty text, section needs a label, code needs non-empty text.
 - Finish by suggesting 2-4 next concepts. No markdown.`,
   });
