@@ -3,12 +3,17 @@ import type { ConceptRow } from "../core/store/repositories";
 import type { Block, SuggestedBranch, Term } from "../core/types";
 import { useConceptLesson } from "../core/store/hooks";
 import { TermPopover } from "./TermPopover";
+import { ErrorBoundary } from "./ErrorBoundary";
 
 const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 function Paragraph({ block, onTerm }: { block: Block; onTerm: (term: Term, rect: DOMRect) => void }) {
   const text = block.text ?? "";
-  const terms = block.terms ?? [];
+  // Streamed partials can carry half-built terms (a `gloss` before its `term`
+  // arrives) — only keep terms with a real string to match on, or escapeRegex throws.
+  const terms = (block.terms ?? []).filter(
+    (t): t is Term => typeof t?.term === "string" && t.term.length > 0,
+  );
   if (terms.length === 0) return <p className="mb-[18px]">{text}</p>;
 
   const sorted = [...terms].sort((a, b) => b.term.length - a.term.length);
@@ -205,24 +210,34 @@ export function LessonPane({
       )}
 
       {blocks.length > 0 && (
-        <div className="mt-7 font-serif text-[16.5px] leading-[1.65] text-ink">
-          {blocks.map((b, i) =>
-            b.kind === "section" ? (
-              <SectionHead key={i} block={b} />
-            ) : b.kind === "callout" ? (
-              <Callout key={i} block={b} />
-            ) : (
-              <Paragraph key={i} block={b} onTerm={(t, r) => setPop({ term: t, rect: r })} />
-            ),
-          )}
-          {generating && (
-            <div className="mt-2 flex items-center gap-2 font-sans text-xs text-ink-3">
-              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />
-              streaming…
+        <ErrorBoundary
+          resetKey={`${generating}:${blocks.length}:${lesson?.generatedAt ?? 0}`}
+          fallback={
+            <div className="mt-8 rounded-md border border-dashed border-rule-strong bg-surface p-4 text-sm">
+              <p className="text-red-600">This lesson couldn't be displayed — the generated content was malformed.</p>
+              <p className="mt-1 text-ink-3">Use ↻ Regenerate above to recreate it.</p>
             </div>
-          )}
-          {!generating && <SuggestedBranches branches={branches} onFork={onFork} />}
-        </div>
+          }
+        >
+          <div className="mt-7 font-serif text-[16.5px] leading-[1.65] text-ink">
+            {blocks.map((b, i) =>
+              b.kind === "section" ? (
+                <SectionHead key={i} block={b} />
+              ) : b.kind === "callout" ? (
+                <Callout key={i} block={b} />
+              ) : (
+                <Paragraph key={i} block={b} onTerm={(t, r) => setPop({ term: t, rect: r })} />
+              ),
+            )}
+            {generating && (
+              <div className="mt-2 flex items-center gap-2 font-sans text-xs text-ink-3">
+                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />
+                streaming…
+              </div>
+            )}
+            {!generating && <SuggestedBranches branches={branches} onFork={onFork} />}
+          </div>
+        </ErrorBoundary>
       )}
 
       {pop && (
