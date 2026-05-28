@@ -7,6 +7,7 @@ import { ErrorBoundary } from "./ErrorBoundary";
 import { CodeBlock } from "./code/CodeBlock";
 import { TableBlock } from "./blocks/TableBlock";
 import { MathBlock, InlineMath } from "./blocks/MathBlock";
+import { ChartBlock } from "./blocks/ChartBlock";
 
 /** A block is renderable once it has the content its kind needs — guards against
  *  empty or half-streamed blocks. */
@@ -43,6 +44,8 @@ function renderBlock(block: Block, key: number, onTerm: (t: Term, r: DOMRect) =>
       return <TableBlock key={key} block={block} />;
     case "math":
       return <MathBlock key={key} block={block} />;
+    case "chart":
+      return <ChartBlock key={key} block={block} />;
     default:
       return <Paragraph key={key} block={block} onTerm={onTerm} />;
   }

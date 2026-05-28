@@ -13,7 +13,7 @@ const LessonSchema = z.object({
   blocks: z
     .array(
       z.object({
-        kind: z.enum(["paragraph", "callout", "section", "code", "table", "math"]),
+        kind: z.enum(["paragraph", "callout", "section", "code", "table", "math", "chart"]),
         text: z
           .string()
           .optional()
@@ -40,6 +40,23 @@ const LessonSchema = z.object({
           .array(z.array(z.string()))
           .optional()
           .describe("for `table` blocks ONLY: rows, each an array of short cell strings aligned to `headers`"),
+        chartType: z
+          .enum(["line", "bar", "scatter", "area"])
+          .optional()
+          .describe("for `chart` blocks ONLY: how to plot the series"),
+        series: z
+          .array(
+            z.object({
+              name: z.string().optional().describe("series label (shown in the legend)"),
+              points: z
+                .array(z.object({ x: z.union([z.number(), z.string()]), y: z.number() }))
+                .describe("data points; x is a number for line/scatter/area or a category label for bar"),
+            }),
+          )
+          .optional()
+          .describe("for `chart` blocks ONLY: one or more data series"),
+        xLabel: z.string().optional().describe("for `chart` blocks ONLY: x-axis label"),
+        yLabel: z.string().optional().describe("for `chart` blocks ONLY: y-axis label"),
       }),
     )
     .describe(
@@ -135,6 +152,11 @@ FORMAT:
   LaTeX (no surrounding dollar signs). For math inside a sentence, wrap it in single dollar signs
   right in the paragraph text — e.g. "the score is $QK^T/\\sqrt{d_k}$". Always prefer rendered
   notation over writing things like "d_k" or "Q times K transpose" in prose.
+- A "chart" block visualizes a trend or quantitative comparison: set \`chartType\` (line, bar,
+  scatter, or area), \`series\` (each an optional \`name\` and an array of {x, y} points), and
+  \`xLabel\` / \`yLabel\`. Data may be ILLUSTRATIVE — the shape of a sigmoid, a learning curve, a
+  rough comparison — kept small (a handful of points) and representative, not precise. Use a
+  chart only when a shape or comparison genuinely aids understanding; refer to it in the prose.
 - Every block must have content: paragraph and callout need non-empty text, section needs a label, code needs non-empty text.
 - Finish by suggesting 2-4 next concepts. No markdown.`,
   });
