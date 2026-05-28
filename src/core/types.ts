@@ -14,11 +14,25 @@ export interface Term {
   gloss: string;
 }
 
+/** A point in a chart series. `x` may be numeric (line/scatter/area) or a
+ *  category label (bar). */
+export interface ChartPoint {
+  x: number | string;
+  y: number;
+}
+
+/** One labeled data series in a chart. */
+export interface ChartSeries {
+  name?: string;
+  points: ChartPoint[];
+}
+
 /** A typed lesson content block. Flat shape (kind + optional fields) keeps it
- *  reliable for structured generation and simple to render. */
+ *  reliable for structured generation and simple to render. Visual kinds
+ *  (math / diagram / table / chart) render inline in the lesson body. */
 export interface Block {
-  kind: "paragraph" | "callout" | "section" | "code";
-  /** paragraph body, callout body, or code source (for `code`) */
+  kind: "paragraph" | "callout" | "section" | "code" | "math" | "diagram" | "table" | "chart";
+  /** paragraph/callout body, code source, LaTeX (for `math`), or Mermaid spec (for `diagram`) */
   text?: string;
   /** callout label (e.g. "Notice") or section label */
   label?: string;
@@ -28,12 +42,22 @@ export interface Block {
   terms?: Term[];
   /** for `code`: language hint (e.g. "python", "javascript", "bash") */
   language?: string;
-  /** for `code`: a short title of what the snippet does, shown on the collapsed
-   *  card so the reader knows the snippet's purpose without expanding it */
+  /** for `code`/`diagram`/`table`/`chart`: a short caption/title */
   title?: string;
   /** marks blocks the chat tutor added on request, so the chat tool can find and
    *  replace the most recent chat-added snippet in place instead of stacking. */
   source?: "chat";
+  /** for `table`: column headers */
+  headers?: string[];
+  /** for `table`: rows, each a list of cells aligned to `headers` */
+  rows?: string[][];
+  /** for `chart`: how to plot the series */
+  chartType?: "line" | "bar" | "scatter" | "area";
+  /** for `chart`: one or more data series */
+  series?: ChartSeries[];
+  /** for `chart`: axis labels */
+  xLabel?: string;
+  yLabel?: string;
 }
 
 export interface SuggestedBranch {

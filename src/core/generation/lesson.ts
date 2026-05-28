@@ -13,7 +13,7 @@ const LessonSchema = z.object({
   blocks: z
     .array(
       z.object({
-        kind: z.enum(["paragraph", "callout", "section", "code"]),
+        kind: z.enum(["paragraph", "callout", "section", "code", "table"]),
         text: z.string().optional().describe("paragraph body, callout body, or source for a `code` block"),
         label: z.string().optional().describe("callout label (e.g. 'Notice') or section label"),
         hint: z.string().optional().describe("optional one-line section hint"),
@@ -28,7 +28,15 @@ const LessonSchema = z.object({
         title: z
           .string()
           .optional()
-          .describe("for `code` blocks ONLY: a short, specific title (3-7 words) of what the snippet does, e.g. 'Computing attention scores' — shown on the collapsed card so the reader knows its purpose"),
+          .describe("a short, specific label (3-7 words): the title of a `code` snippet, or a caption for a `table` (and later `diagram`/`chart`)"),
+        headers: z
+          .array(z.string())
+          .optional()
+          .describe("for `table` blocks ONLY: short column headers"),
+        rows: z
+          .array(z.array(z.string()))
+          .optional()
+          .describe("for `table` blocks ONLY: rows, each an array of short cell strings aligned to `headers`"),
       }),
     )
     .describe(
@@ -116,6 +124,10 @@ FORMAT:
   import torch, tensorflow, keras, or jax — illustrate ML / deep-learning ideas from scratch
   with numpy (or plain Python) so the snippet actually runs. One tight illustrative example
   beats five. For non-technical subjects (history, music, biology essays, etc.), use NO code blocks.
+- A "table" block (set \`headers\` + \`rows\`) lays out a comparison or structured facts side by
+  side — comparing approaches, options, eras, properties, trade-offs. Keep cells short (a few
+  words). Prefer it over prose whenever the content is inherently tabular. Optional \`title\`
+  caption; refer to it from the surrounding text.
 - Every block must have content: paragraph and callout need non-empty text, section needs a label, code needs non-empty text.
 - Finish by suggesting 2-4 next concepts. No markdown.`,
   });

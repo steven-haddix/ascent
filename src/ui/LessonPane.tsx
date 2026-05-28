@@ -5,6 +5,45 @@ import { useConceptLesson } from "../core/store/hooks";
 import { TermPopover } from "./TermPopover";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { CodeBlock } from "./code/CodeBlock";
+import { TableBlock } from "./blocks/TableBlock";
+
+/** A block is renderable once it has the content its kind needs — guards against
+ *  empty or half-streamed blocks. */
+function isRenderableBlock(b: Block): boolean {
+  switch (b.kind) {
+    case "section":
+      return !!b.label?.trim();
+    case "table":
+      return !!(b.headers?.length || b.rows?.length);
+    case "chart":
+      return !!b.series?.length;
+    case "paragraph":
+    case "callout":
+    case "code":
+    case "math":
+    case "diagram":
+      return !!b.text?.trim();
+    default:
+      return false;
+  }
+}
+
+/** Render one block by kind. Visual kinds are wired in per slice; unknown or
+ *  not-yet-handled kinds fall back to a paragraph. */
+function renderBlock(block: Block, key: number, onTerm: (t: Term, r: DOMRect) => void) {
+  switch (block.kind) {
+    case "section":
+      return <SectionHead key={key} block={block} />;
+    case "callout":
+      return <Callout key={key} block={block} />;
+    case "code":
+      return <CodeBlock key={key} block={block} />;
+    case "table":
+      return <TableBlock key={key} block={block} />;
+    default:
+      return <Paragraph key={key} block={block} onTerm={onTerm} />;
+  }
+}
 
 const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
@@ -177,9 +216,7 @@ export function LessonPane({
   // the persisted lesson wins — so a regenerate visibly replaces the old one.
   const display = generating ? partial : (lesson ?? partial);
   const subtitle = display?.subtitle ?? null;
-  const blocks = ((display?.blocks ?? []) as Block[]).filter((b) =>
-    b.kind ? (b.kind === "section" ? !!b.label?.trim() : !!b.text?.trim()) : false,
-  );
+  const blocks = ((display?.blocks ?? []) as Block[]).filter(isRenderableBlock);
   const branches = (lesson?.suggestedBranches as SuggestedBranch[] | undefined) ?? [];
 
   return (
@@ -231,17 +268,7 @@ export function LessonPane({
           }
         >
           <div className="mt-7 font-serif text-[16.5px] leading-[1.65] text-ink">
-            {blocks.map((b, i) =>
-              b.kind === "section" ? (
-                <SectionHead key={i} block={b} />
-              ) : b.kind === "callout" ? (
-                <Callout key={i} block={b} />
-              ) : b.kind === "code" ? (
-                <CodeBlock key={i} block={b} />
-              ) : (
-                <Paragraph key={i} block={b} onTerm={(t, r) => setPop({ term: t, rect: r })} />
-              ),
-            )}
+            {blocks.map((b, i) => renderBlock(b, i, (t, r) => setPop({ term: t, rect: r })))}
             {generating && (
               <div className="mt-2 flex items-center gap-2 font-sans text-xs text-ink-3">
                 <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />
