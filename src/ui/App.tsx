@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { runMigrations } from "../core/store/migrate";
 import { secretStore } from "../core/secrets";
 import { useTopics, useConcepts, useStartTopic, useForkConcept } from "../core/store/hooks";
@@ -28,14 +28,25 @@ export function App() {
   const startTopic = useStartTopic();
   const fork = useForkConcept();
 
-  // Open the most recent topic on first load.
+  // Open the most recent topic once, on first load — but never again. "New topic"
+  // clears activeTopicId to show the Trailhead; keying this effect off !activeTopicId
+  // would immediately re-open the existing topic, defeating the button.
+  const didInitialOpen = useRef(false);
   useEffect(() => {
-    if (phase === "ready" && !activeTopicId && topics.data && topics.data.length > 0) {
+    if (phase !== "ready" || didInitialOpen.current || !topics.data) return;
+    didInitialOpen.current = true;
+    if (topics.data.length > 0) {
       const recent = topics.data[topics.data.length - 1];
       setActiveTopicId(recent.id);
       setSelectedConceptId(recent.rootConceptId ?? null);
     }
-  }, [phase, activeTopicId, topics.data]);
+  }, [phase, topics.data]);
+
+  const handleSelectTopic = (topicId: string) => {
+    const topic = topics.data?.find((t) => t.id === topicId);
+    setActiveTopicId(topicId);
+    setSelectedConceptId(topic?.rootConceptId ?? null);
+  };
 
   const handleStartTopic = (title: string) => {
     startTopic.mutate(title, {
@@ -63,7 +74,9 @@ export function App() {
 
   return (
     <AppShell
+      topics={topics.data ?? []}
       activeTopicId={activeTopicId}
+      onSelectTopic={handleSelectTopic}
       concepts={concepts.data ?? []}
       selectedConceptId={selectedConceptId}
       onSelectConcept={setSelectedConceptId}

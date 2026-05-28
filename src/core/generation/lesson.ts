@@ -2,6 +2,7 @@
 // generateLesson streams partial lessons (onPartial) for progressive rendering,
 // then persists the complete, validated result.
 import { streamText, Output } from "ai";
+import type { AnthropicLanguageModelOptions } from "@ai-sdk/anthropic";
 import { z } from "zod";
 import { getModel } from "../ai/service";
 import { getModelId } from "../settings";
@@ -102,6 +103,13 @@ export async function generateLesson(
   const result = streamText({
     model: getModel(),
     output: Output.object({ schema: LessonSchema }),
+    providerOptions: {
+      anthropic: {
+        // Native output_config structured decoding stalls on this broader visual
+        // block schema; the JSON tool path still streams partial object input.
+        structuredOutputMode: "jsonTool",
+      } satisfies AnthropicLanguageModelOptions,
+    },
     abortSignal: signal,
     prompt: `You are an exceptional tutor — the kind whose explanations make a hard idea
 suddenly click — writing ONE focused lesson within a larger learning tree. Your goal is
@@ -126,6 +134,8 @@ HOW TO EXPLAIN (this matters more than how much you cover):
   properly — just make the path to understanding gentle, and unpack jargon the instant you use it.
 - Be warm and direct, like you're talking to one curious person. No filler, no throat-clearing,
   no "in this lesson we will".
+- Do not use Markdown emphasis markers such as **bold** or *italic* in any text field. Write
+  normal prose; the app handles visual styling.
 
 FORMAT:
 - 8-14 blocks, mostly short "paragraph" blocks of 2-4 sentences (break up anything longer).
@@ -154,7 +164,8 @@ FORMAT:
 - Use REAL math, never ASCII. For a standalone equation, use a "math" block with \`text\` set to
   LaTeX (no surrounding dollar signs). For math inside a sentence, wrap it in single dollar signs
   right in the paragraph text — e.g. "the score is $QK^T/\\sqrt{d_k}$". Always prefer rendered
-  notation over writing things like "d_k" or "Q times K transpose" in prose.
+  notation over writing things like "d_k" or "Q times K transpose" in prose. Never put raw LaTeX
+  commands like \`\\approx\` or \`\\sqrt{}\` in paragraph text unless they are inside single dollar signs.
 - A "chart" block visualizes a trend or quantitative comparison: set \`chartType\` (line, bar,
   scatter, or area), \`series\` (each an optional \`name\` and an array of {x, y} points), and
   \`xLabel\` / \`yLabel\`. Data may be ILLUSTRATIVE — the shape of a sigmoid, a learning curve, a

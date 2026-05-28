@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { ConceptRow } from "../core/store/repositories";
+import type { ConceptRow, TopicRow } from "../core/store/repositories";
 import { ConceptTree } from "./ConceptTree";
 import { Trailhead } from "./Trailhead";
 import { LessonPane } from "./LessonPane";
@@ -7,7 +7,16 @@ import { ChatDrawer } from "./ChatDrawer";
 import { PreviewPane } from "./PreviewPane";
 import { Settings } from "./Settings";
 import { CommandPalette, type Command } from "./CommandPalette";
-import { THEMES, getTheme, setTheme as persistTheme, applyTheme, type Theme } from "../core/settings";
+import {
+  THEMES,
+  getTheme,
+  setTheme as persistTheme,
+  applyTheme,
+  getPreviewWidth,
+  setPreviewWidth as persistPreviewWidth,
+  PREVIEW_WIDTH,
+  type Theme,
+} from "../core/settings";
 
 function ThemeToggle({ theme, onChange }: { theme: Theme; onChange: (t: Theme) => void }) {
   return (
@@ -102,18 +111,47 @@ function EmptyPane({ eyebrow, title, hint }: { eyebrow: string; title: string; h
 }
 
 function Sidebar({
+  topics,
+  activeTopicId,
   concepts,
   selectedConceptId,
+  onSelectTopic,
   onSelectConcept,
   onNewTopic,
 }: {
+  topics: TopicRow[];
+  activeTopicId: string | null;
   concepts: ConceptRow[];
   selectedConceptId: string | null;
+  onSelectTopic: (id: string) => void;
   onSelectConcept: (id: string) => void;
   onNewTopic: () => void;
 }) {
   return (
     <aside className="flex min-h-0 flex-col overflow-hidden border-r border-rule bg-surface">
+      {topics.length > 0 && (
+        <div className="shrink-0 border-b border-rule">
+          <div className="px-3.5 pb-1.5 pt-3.5">
+            <span className="text-[10.5px] font-medium uppercase tracking-wider text-ink-3">Topics</span>
+          </div>
+          <div className="max-h-44 overflow-y-auto px-2 pb-2">
+            {topics.map((t) => (
+              <button
+                key={t.id}
+                onClick={() => onSelectTopic(t.id)}
+                title={t.title}
+                className={`block w-full truncate rounded-md px-2 py-1.5 text-left text-[12.5px] ${
+                  t.id === activeTopicId
+                    ? "bg-surface-2 font-medium text-ink"
+                    : "text-ink-2 hover:bg-surface-2 hover:text-ink"
+                }`}
+              >
+                {t.title}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
       <div className="flex items-center justify-between px-3.5 pb-2 pt-3.5">
         <span className="text-[10.5px] font-medium uppercase tracking-wider text-ink-3">Learning tree</span>
       </div>
@@ -121,7 +159,7 @@ function Sidebar({
         {concepts.length > 0 ? (
           <ConceptTree concepts={concepts} selectedId={selectedConceptId} onSelect={onSelectConcept} />
         ) : (
-          <EmptyPane eyebrow="Empty" title="No topic open" hint="Start a topic to grow a tree of concepts." />
+          <EmptyPane eyebrow="Empty" title="No topic open" hint="Pick a topic above, or start a new one." />
         )}
       </div>
       <div className="border-t border-rule p-3.5">
@@ -152,7 +190,9 @@ function pathTo(concepts: ConceptRow[], id: string): string[] {
 }
 
 interface AppShellProps {
+  topics: TopicRow[];
   activeTopicId: string | null;
+  onSelectTopic: (id: string) => void;
   concepts: ConceptRow[];
   selectedConceptId: string | null;
   onSelectConcept: (id: string) => void;
@@ -165,7 +205,9 @@ interface AppShellProps {
 
 export function AppShell(props: AppShellProps) {
   const {
+    topics,
     activeTopicId,
+    onSelectTopic,
     concepts,
     selectedConceptId,
     onSelectConcept,
@@ -182,6 +224,30 @@ export function AppShell(props: AppShellProps) {
   // The chat drawer overlays the lesson; track its height so the lesson reserves
   // matching scroll room beneath its content (you can always scroll past it).
   const [chatHeight, setChatHeight] = useState(72);
+
+  // Right preview panel is drag-resizable; width persists to localStorage.
+  const [previewWidth, setPreviewWidth] = useState<number>(() => getPreviewWidth());
+  const startResize = (e: React.PointerEvent) => {
+    e.preventDefault();
+    let next = previewWidth;
+    const onMove = (ev: PointerEvent) => {
+      // Keep the middle lesson pane from collapsing — cap so it always has room.
+      const max = Math.min(PREVIEW_WIDTH.max, window.innerWidth - 520);
+      next = Math.min(max, Math.max(PREVIEW_WIDTH.min, window.innerWidth - ev.clientX));
+      setPreviewWidth(next);
+    };
+    const onUp = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      document.body.style.userSelect = "";
+      document.body.style.cursor = "";
+      persistPreviewWidth(next);
+    };
+    document.body.style.userSelect = "none";
+    document.body.style.cursor = "col-resize";
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  };
 
   // Theme is owned here so the topbar toggle and the Settings panel stay in sync.
   const [theme, setThemeState] = useState<Theme>(() => getTheme());
@@ -211,6 +277,14 @@ export function AppShell(props: AppShellProps) {
   // Concepts (jump-to) + a few actions. Rebuilt each render — cheap, and the
   // palette only mounts when open.
   const commands: Command[] = [
+    ...topics.map((t) => ({
+      id: `topic:${t.id}`,
+      label: t.title,
+      hint: t.id === activeTopicId ? "Current topic" : "Switch topic",
+      section: "Topics",
+      keywords: "switch open tree",
+      run: () => onSelectTopic(t.id),
+    })),
     ...concepts.map((c) => ({
       id: `concept:${c.id}`,
       label: c.title,
@@ -251,10 +325,16 @@ export function AppShell(props: AppShellProps) {
         onOpenSettings={() => setSettingsOpen(true)}
         onOpenPalette={() => setPaletteOpen(true)}
       />
-      <div className="grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)] grid-cols-[minmax(220px,260px)_minmax(0,1fr)_minmax(360px,440px)]">
+      <div
+        className="grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)]"
+        style={{ gridTemplateColumns: `minmax(220px,260px) minmax(0,1fr) ${previewWidth}px` }}
+      >
         <Sidebar
+          topics={topics}
+          activeTopicId={activeTopicId}
           concepts={concepts}
           selectedConceptId={selectedConceptId}
+          onSelectTopic={onSelectTopic}
           onSelectConcept={onSelectConcept}
           onNewTopic={onNewTopic}
         />
@@ -285,7 +365,12 @@ export function AppShell(props: AppShellProps) {
             <EmptyPane eyebrow="Lesson" title="Pick a concept" hint="Select a concept in the tree to begin." />
           )}
         </main>
-        <aside className="flex min-h-0 flex-col border-l border-rule bg-surface">
+        <aside className="relative flex min-h-0 flex-col border-l border-rule bg-surface">
+          <div
+            onPointerDown={startResize}
+            title="Drag to resize"
+            className="absolute left-0 top-0 z-10 h-full w-1.5 -translate-x-1/2 cursor-col-resize hover:bg-rule-strong"
+          />
           {selected ? (
             <PreviewPane
               key={selected.id}

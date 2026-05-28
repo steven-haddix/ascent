@@ -6,6 +6,7 @@ import { db } from "./client";
 import { topics, concepts, lessons, notes, chatTurns, teachAttempts } from "./schema";
 
 export type TopicInsert = typeof topics.$inferInsert;
+export type TopicRow = typeof topics.$inferSelect;
 export type ConceptInsert = typeof concepts.$inferInsert;
 export type ConceptRow = typeof concepts.$inferSelect;
 export type LessonInsert = typeof lessons.$inferInsert;

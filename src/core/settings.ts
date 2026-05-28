@@ -7,6 +7,20 @@ import { MODELS, MODEL_OPTIONS, type ModelId } from "./ai/models";
 const TUTOR_MODE_KEY = "ascent-tutor-mode";
 const MODEL_KEY = "ascent-model";
 const THEME_KEY = "ascent-theme";
+const PREVIEW_WIDTH_KEY = "ascent-preview-width";
+
+/** Width bounds (px) for the resizable right preview panel. */
+export const PREVIEW_WIDTH = { min: 360, max: 820, default: 440 } as const;
+
+export function getPreviewWidth(): number {
+  const v = Number(localStorage.getItem(PREVIEW_WIDTH_KEY));
+  if (!Number.isFinite(v) || v <= 0) return PREVIEW_WIDTH.default;
+  return Math.min(PREVIEW_WIDTH.max, Math.max(PREVIEW_WIDTH.min, v));
+}
+
+export function setPreviewWidth(px: number) {
+  localStorage.setItem(PREVIEW_WIDTH_KEY, String(Math.round(px)));
+}
 
 export function getTutorMode(): TutorMode {
   const v = localStorage.getItem(TUTOR_MODE_KEY);

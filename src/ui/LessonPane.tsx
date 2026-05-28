@@ -58,7 +58,7 @@ const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 const MATH_INLINE_RE = /\$(\S(?:[^$\n]*?\S)?)\$/g;
 
-/** Split paragraph text into inline-math ($…$) vs plain-text segments. The pattern
+/** Split paragraph text into inline-math ($...) vs plain-text segments. The pattern
  *  requires a non-space just inside the delimiters, so prose like "$5 and $10" is
  *  not mistaken for math. */
 function splitMathSegments(text: string): { math: boolean; value: string }[] {

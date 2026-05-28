@@ -18,6 +18,8 @@
     "@tauri-apps/plugin-opener": "^2",
     "ai": "^6.0.191",
     "drizzle-orm": "^0.45.2",
+    "katex": "^0.17.0",
+    "mermaid": "^11.15.0",
     "pyodide": "^0.29.4",
     "react": "^19.1.0",
     "react-arborist": "^3.8.0",
@@ -28,6 +30,7 @@
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.0",
     "@tauri-apps/cli": "^2",
+    "@types/katex": "^0.16.8",
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
     "@vitejs/plugin-react": "^4.6.0",
