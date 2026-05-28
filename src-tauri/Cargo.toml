@@ -27,7 +27,7 @@ sqlite-vec = "0.1.9"
 reqwest = { version = "0.13.4", features = ["stream", "json"] }
 futures-util = "0.3.32"
 # tokio 1.52.3 requires tokio-macros ~2.7.0 (not yet on crates.io); pin below it.
-tokio = { version = ">=1.40, <1.52", features = ["rt-multi-thread", "macros"] }
+tokio = { version = ">=1.40, <1.52", features = ["rt-multi-thread", "macros", "time"] }
 keyring = { version = "^3", features = ["apple-native"] }
 base64 = "0.22.1"
 
