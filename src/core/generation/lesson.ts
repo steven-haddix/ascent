@@ -22,7 +22,9 @@ const LessonSchema = z.object({
           .describe("for paragraphs only: key terms appearing verbatim in `text`, each with a one-line gloss, that a curious learner could branch into"),
       }),
     )
-    .describe("6-12 blocks: mostly short paragraphs, optional section headers, maybe one callout"),
+    .describe(
+      "8-14 blocks: short paragraphs (2-4 sentences, one idea each), section headers that chunk the lesson into clear beats, at most one callout",
+    ),
   suggestedBranches: z
     .array(z.object({ title: z.string(), reason: z.string() }))
     .describe("2-4 concepts worth exploring next"),
@@ -59,21 +61,40 @@ export async function generateLesson(
   const result = streamText({
     model: getModel(MODELS.default),
     output: Output.object({ schema: LessonSchema }),
-    prompt: `You are a sharp, concrete tutor writing ONE focused lesson within a larger learning tree.
+    prompt: `You are an exceptional tutor — the kind whose explanations make a hard idea
+suddenly click — writing ONE focused lesson within a larger learning tree. Your goal is
+understanding, not coverage. Do NOT write like an encyclopedia.
 
 Topic: "${ctx.topicTitle}"
 Path: ${ctx.path.join(" > ")}
 Concept to teach: "${concept.title}"${focus}${siblings}${children}
 
-Write a tight lesson of 6-12 blocks, mostly short "paragraph" blocks. Across the
-paragraphs, mark 2-5 key TERMS (each appearing verbatim in that paragraph's text) with a
-one-line gloss — these become forkable branches. Use "section" headers to structure a
-longer lesson. A "callout" is RARE (at most one in the whole lesson): only for a single
-standout takeaway — give it a short label such as "Notice", "Intuition", or "Watch out"
-AND a real sentence of body text; omit callouts entirely if nothing warrants one (never
-label one "load-bearing"). Every block must have content: paragraph and callout need
-non-empty text, section needs a label. Finish by suggesting 2-4 next concepts. Be
-concrete; no filler; no markdown.`,
+HOW TO EXPLAIN (this matters more than how much you cover):
+- Start from intuition. Before any formalism, give the learner a way to picture or feel
+  what's going on and why it matters — a plain-language framing, an analogy, or a motivating
+  question. Earn the formal definition; don't open with it.
+- Build up in small steps, one idea per paragraph. Introduce a piece, make it land, then add
+  the next. Never stack three new ideas into one dense paragraph.
+- Show, don't just state. Include at least one concrete worked example — small real numbers,
+  a tiny scenario, or a case walked through step by step — and use everyday analogies where
+  they genuinely help. The moment you introduce notation or a formula, say in words what each
+  part means and why it's there.
+- Keep the rigor. This is NOT "explain like I'm five": stay precise and correct, name things
+  properly — just make the path to understanding gentle, and unpack jargon the instant you use it.
+- Be warm and direct, like you're talking to one curious person. No filler, no throat-clearing,
+  no "in this lesson we will".
+
+FORMAT:
+- 8-14 blocks, mostly short "paragraph" blocks of 2-4 sentences (break up anything longer).
+- Use "section" headers to chunk the lesson into a few clear beats — e.g. the intuition, the
+  mechanism, a worked example, why it matters. Give each a short label and optional one-line hint.
+- Across the paragraphs, mark 2-5 key TERMS (each appearing verbatim in that paragraph's text)
+  with a one-line gloss — these become forkable branches.
+- A "callout" is RARE (at most one): reserve it for a single standout intuition or "watch out",
+  with a short label ("Intuition", "Notice", "Watch out") and a real sentence of body. Omit it if
+  nothing earns it; never label one "load-bearing". Put examples in normal paragraphs, not callouts.
+- Every block must have content: paragraph and callout need non-empty text, section needs a label.
+- Finish by suggesting 2-4 next concepts. No markdown.`,
   });
 
   for await (const partial of result.partialOutputStream) {
