@@ -114,6 +114,12 @@ function OutputPanel({ output }: { output: PythonResult }) {
         <pre className="m-0 whitespace-pre-wrap text-amber-700">{output.stderr}</pre>
       )}
       {output.error && <pre className="m-0 whitespace-pre-wrap text-red-600">{output.error}</pre>}
+      {output.error && /ModuleNotFoundError|ImportError/.test(output.error) && (
+        <p className="mt-2 font-sans text-[11px] leading-relaxed text-ink-3">
+          That package isn't available in the in-browser Python runtime. Runnable snippets can use
+          the standard library plus numpy, pandas, scipy, scikit-learn, sympy, and matplotlib.
+        </p>
+      )}
       {output.result !== undefined && (
         <div className="mt-1.5 border-t border-rule pt-1.5 text-ink-3">
           <span className="mr-2 text-[10.5px] uppercase tracking-wider">↳</span>

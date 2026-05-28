@@ -52,6 +52,9 @@ export async function chat(
     `setLessonCode to add a snippet directly into the lesson — it appears highlighted in the ` +
     `body and runnable in the Code tab on the right. Always give the snippet a short, specific ` +
     `title (3-7 words) of what it does, so the learner understands it while it's collapsed. ` +
+    `Python runs locally via Pyodide, so runnable Python may import ONLY the standard library ` +
+    `or numpy / pandas / scipy / scikit-learn / sympy / matplotlib — never torch / tensorflow / ` +
+    `keras / jax; implement ML ideas from scratch with numpy so the snippet actually runs. ` +
     `Call this ONLY when seeing real code ` +
     `would help understanding (programming / ML / scripting / data topics). Don't call it on ` +
     `every message. The snippet must be distilled and focused on teaching THIS concept as ` +
@@ -95,7 +98,9 @@ export async function chat(
           .describe("a short, specific title (3-7 words) of what the snippet does, e.g. 'NumPy version of the calculation' — shown on the collapsed card so the learner knows its purpose"),
         code: z
           .string()
-          .describe("the snippet itself — distilled, focused, with comments where they earn their place"),
+          .describe(
+            "the snippet itself — distilled, focused, with comments where they earn their place. Runnable Python may use only the stdlib or numpy/pandas/scipy/scikit-learn/sympy/matplotlib (never torch/tensorflow/keras/jax)",
+          ),
         intro: z
           .string()
           .optional()

@@ -45,6 +45,17 @@ export async function runPython(
   onProgress?: (msg: string) => void,
 ): Promise<PythonResult> {
   const py = await loadPyodideRuntime(onProgress);
+  // Auto-load any Pyodide-bundled packages the snippet imports (numpy, pandas,
+  // scipy, scikit-learn, sympy, matplotlib, …). Packages with no WASM build —
+  // torch, tensorflow — simply aren't loaded here; the import then fails with a
+  // clear ModuleNotFoundError that the UI explains.
+  onProgress?.("Loading packages…");
+  try {
+    await py.loadPackagesFromImports(code);
+  } catch {
+    // a package may be unavailable / unfetchable — let it surface as an ImportError on run
+  }
+  onProgress?.("Running…");
   let stdout = "";
   let stderr = "";
   py.setStdout({ batched: (s: string) => (stdout += s + "\n") });

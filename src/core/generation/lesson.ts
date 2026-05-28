@@ -107,7 +107,11 @@ FORMAT:
   (5-30 lines), self-contained where possible. Set \`language\` to the source language
   ("python", "javascript", "typescript", "bash", or "json") AND set \`title\` to a short,
   specific label (3-7 words) of what the snippet does (e.g. "Computing attention scores"),
-  so a reader understands it while it's collapsed. One tight illustrative example
+  so a reader understands it while it's collapsed. Python runs locally in a sandboxed
+  in-browser runtime (Pyodide), so a Python snippet may import ONLY the standard library or
+  these available packages: numpy, pandas, scipy, scikit-learn, sympy, matplotlib. Do NOT
+  import torch, tensorflow, keras, or jax — illustrate ML / deep-learning ideas from scratch
+  with numpy (or plain Python) so the snippet actually runs. One tight illustrative example
   beats five. For non-technical subjects (history, music, biology essays, etc.), use NO code blocks.
 - Every block must have content: paragraph and callout need non-empty text, section needs a label, code needs non-empty text.
 - Finish by suggesting 2-4 next concepts. No markdown.`,
