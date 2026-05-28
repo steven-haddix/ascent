@@ -6,6 +6,7 @@ import { LessonPane } from "./LessonPane";
 import { ChatDrawer } from "./ChatDrawer";
 import { PreviewPane } from "./PreviewPane";
 import { Settings } from "./Settings";
+import { CommandPalette, type Command } from "./CommandPalette";
 import { THEMES, getTheme, setTheme as persistTheme, applyTheme, type Theme } from "../core/settings";
 
 function ThemeToggle({ theme, onChange }: { theme: Theme; onChange: (t: Theme) => void }) {
@@ -27,10 +28,12 @@ function Topbar({
   theme,
   onChangeTheme,
   onOpenSettings,
+  onOpenPalette,
 }: {
   theme: Theme;
   onChangeTheme: (t: Theme) => void;
   onOpenSettings: () => void;
+  onOpenPalette: () => void;
 }) {
   return (
     <header className="grid h-[52px] shrink-0 grid-cols-[280px_1fr_280px] items-center border-b border-rule bg-surface px-4">
@@ -49,12 +52,15 @@ function Topbar({
         </div>
       </div>
       <div className="flex justify-center">
-        <button className="flex w-full max-w-[520px] items-center gap-2.5 rounded-lg border border-rule bg-surface-2 px-3 py-1.5 text-left text-[12.5px] text-ink-3 hover:border-rule-strong hover:text-ink-2">
+        <button
+          onClick={onOpenPalette}
+          className="flex w-full max-w-[520px] items-center gap-2.5 rounded-lg border border-rule bg-surface-2 px-3 py-1.5 text-left text-[12.5px] text-ink-3 hover:border-rule-strong hover:text-ink-2"
+        >
           <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.2">
             <circle cx="6" cy="6" r="4" />
             <path d="M9 9 L12 12" />
           </svg>
-          <span className="flex-1">Jump to a branch, run a command, or ask…</span>
+          <span className="flex-1">Jump to a concept or run a command…</span>
           <span className="rounded border border-rule bg-surface px-1.5 py-0.5 font-mono text-[10.5px]">⌘K</span>
         </button>
       </div>
@@ -180,6 +186,7 @@ export function AppShell(props: AppShellProps) {
   // Theme is owned here so the topbar toggle and the Settings panel stay in sync.
   const [theme, setThemeState] = useState<Theme>(() => getTheme());
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
   const changeTheme = (t: Theme) => {
     setThemeState(t);
     persistTheme(t); // writes localStorage + applies to <html>
@@ -189,9 +196,61 @@ export function AppShell(props: AppShellProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Global ⌘K / Ctrl-K toggles the command palette.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setPaletteOpen((o) => !o);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  // Concepts (jump-to) + a few actions. Rebuilt each render — cheap, and the
+  // palette only mounts when open.
+  const commands: Command[] = [
+    ...concepts.map((c) => ({
+      id: `concept:${c.id}`,
+      label: c.title,
+      hint: pathTo(concepts, c.id).slice(0, -1).join(" / ") || "Root",
+      section: "Jump to",
+      run: () => onSelectConcept(c.id),
+    })),
+    {
+      id: "act:new-topic",
+      label: "New topic",
+      hint: "Start a fresh learning tree",
+      section: "Actions",
+      keywords: "create add",
+      run: onNewTopic,
+    },
+    {
+      id: "act:settings",
+      label: "Open Settings",
+      hint: "API key, model, theme",
+      section: "Actions",
+      keywords: "preferences key model api",
+      run: () => setSettingsOpen(true),
+    },
+    ...THEMES.map((t) => ({
+      id: `act:theme-${t}`,
+      label: `Theme: ${t[0].toUpperCase()}${t.slice(1)}`,
+      section: "Actions",
+      keywords: "appearance color mode",
+      run: () => changeTheme(t),
+    })),
+  ];
+
   return (
     <div className="flex h-screen flex-col">
-      <Topbar theme={theme} onChangeTheme={changeTheme} onOpenSettings={() => setSettingsOpen(true)} />
+      <Topbar
+        theme={theme}
+        onChangeTheme={changeTheme}
+        onOpenSettings={() => setSettingsOpen(true)}
+        onOpenPalette={() => setPaletteOpen(true)}
+      />
       <div className="grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)] grid-cols-[minmax(220px,260px)_minmax(0,1fr)_minmax(360px,440px)]">
         <Sidebar
           concepts={concepts}
@@ -245,6 +304,7 @@ export function AppShell(props: AppShellProps) {
       {settingsOpen && (
         <Settings theme={theme} onChangeTheme={changeTheme} onClose={() => setSettingsOpen(false)} />
       )}
+      {paletteOpen && <CommandPalette commands={commands} onClose={() => setPaletteOpen(false)} />}
     </div>
   );
 }
