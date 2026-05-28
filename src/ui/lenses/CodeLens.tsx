@@ -38,7 +38,7 @@ export function CodeLens({ concept }: LensProps) {
         few seconds; after that it's instant.
       </p>
       {codeBlocks.map((b, i) => (
-        <CodeRunner key={i} code={b.text ?? ""} language={b.language ?? "python"} />
+        <CodeRunner key={i} code={b.text ?? ""} language={b.language ?? "python"} title={b.title} />
       ))}
     </div>
   );

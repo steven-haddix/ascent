@@ -24,6 +24,10 @@ const LessonSchema = z.object({
           .string()
           .optional()
           .describe("for `code` blocks ONLY: the source language — 'python', 'javascript', 'typescript', 'bash', or 'json'"),
+        title: z
+          .string()
+          .optional()
+          .describe("for `code` blocks ONLY: a short, specific title (3-7 words) of what the snippet does, e.g. 'Computing attention scores' — shown on the collapsed card so the reader knows its purpose"),
       }),
     )
     .describe(
@@ -101,7 +105,9 @@ FORMAT:
 - A "code" block contains a runnable code snippet. Use it ONLY when seeing real code helps
   understanding (programming, ML, scripting, data work). Keep snippets short and focused
   (5-30 lines), self-contained where possible. Set \`language\` to the source language
-  ("python", "javascript", "typescript", "bash", or "json"). One tight illustrative example
+  ("python", "javascript", "typescript", "bash", or "json") AND set \`title\` to a short,
+  specific label (3-7 words) of what the snippet does (e.g. "Computing attention scores"),
+  so a reader understands it while it's collapsed. One tight illustrative example
   beats five. For non-technical subjects (history, music, biology essays, etc.), use NO code blocks.
 - Every block must have content: paragraph and callout need non-empty text, section needs a label, code needs non-empty text.
 - Finish by suggesting 2-4 next concepts. No markdown.`,

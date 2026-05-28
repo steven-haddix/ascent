@@ -28,6 +28,9 @@ export interface Block {
   terms?: Term[];
   /** for `code`: language hint (e.g. "python", "javascript", "bash") */
   language?: string;
+  /** for `code`: a short title of what the snippet does, shown on the collapsed
+   *  card so the reader knows the snippet's purpose without expanding it */
+  title?: string;
   /** marks blocks the chat tutor added on request, so the chat tool can find and
    *  replace the most recent chat-added snippet in place instead of stacking. */
   source?: "chat";

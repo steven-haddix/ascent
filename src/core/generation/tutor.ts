@@ -50,7 +50,9 @@ export async function chat(
     `for more. Be concrete. No markdown.\n\n` +
     `If the learner asks for code, an example, or a runnable demonstration, you may call ` +
     `setLessonCode to add a snippet directly into the lesson — it appears highlighted in the ` +
-    `body and runnable in the Code tab on the right. Call this ONLY when seeing real code ` +
+    `body and runnable in the Code tab on the right. Always give the snippet a short, specific ` +
+    `title (3-7 words) of what it does, so the learner understands it while it's collapsed. ` +
+    `Call this ONLY when seeing real code ` +
     `would help understanding (programming / ML / scripting / data topics). Don't call it on ` +
     `every message. The snippet must be distilled and focused on teaching THIS concept as ` +
     `clearly as possible — length should serve clarity, never be artificially capped. A tight ` +
@@ -88,6 +90,9 @@ export async function chat(
         language: z
           .enum(["python", "javascript", "typescript", "bash", "json"])
           .describe("source language — only 'python' is runnable in v1; the rest render highlighted but read-only"),
+        title: z
+          .string()
+          .describe("a short, specific title (3-7 words) of what the snippet does, e.g. 'NumPy version of the calculation' — shown on the collapsed card so the learner knows its purpose"),
         code: z
           .string()
           .describe("the snippet itself — distilled, focused, with comments where they earn their place"),
@@ -96,7 +101,7 @@ export async function chat(
           .optional()
           .describe("optional one-sentence paragraph introducing the snippet (e.g. 'Here's that with NumPy:')"),
       }),
-      execute: async ({ mode, language, code, intro }) => {
+      execute: async ({ mode, language, title, code, intro }) => {
         if (isLessonStreaming(concept.id)) {
           return { ok: false as const, error: "the lesson is currently generating — try again in a moment" };
         }
@@ -111,7 +116,7 @@ export async function chat(
         if (intro && intro.trim().length > 0) {
           newPair.push({ kind: "paragraph", text: intro, source: "chat" });
         }
-        newPair.push({ kind: "code", text: code, language, source: "chat" });
+        newPair.push({ kind: "code", text: code, language, title, source: "chat" });
 
         if (mode === "replace") {
           // Find the most recent chat-added code block (walking backward to avoid

@@ -5,7 +5,15 @@ import { runPython, type PythonResult } from "../../core/code/python";
 /** A single snippet in the Code lens: edit it, run it (Python only in v1), see
  *  stdout / stderr / the final expression / Python errors. The output panel and
  *  loading note appear below the code on demand. */
-export function CodeRunner({ code: initial, language }: { code: string; language: string }) {
+export function CodeRunner({
+  code: initial,
+  language,
+  title,
+}: {
+  code: string;
+  language: string;
+  title?: string;
+}) {
   const [editing, setEditing] = useState(false);
   const [code, setCode] = useState(initial);
   const [running, setRunning] = useState(false);
@@ -35,9 +43,18 @@ export function CodeRunner({ code: initial, language }: { code: string; language
 
   return (
     <div className="overflow-hidden rounded-md border border-rule">
-      <div className="flex items-center justify-between border-b border-rule bg-surface-2 px-3 py-1 font-sans text-[10.5px] uppercase tracking-wider text-ink-3">
-        <span>{language}</span>
-        <div className="flex items-center gap-2">
+      <div className="flex items-center justify-between gap-3 border-b border-rule bg-surface-2 px-3 py-1.5 font-sans">
+        <span className="flex min-w-0 flex-col gap-0.5">
+          {title?.trim() ? (
+            <>
+              <span className="truncate text-[12.5px] font-medium text-ink-2">{title.trim()}</span>
+              <span className="text-[9.5px] uppercase tracking-wider text-ink-3">{language}</span>
+            </>
+          ) : (
+            <span className="text-[10.5px] uppercase tracking-wider text-ink-3">{language}</span>
+          )}
+        </span>
+        <div className="flex shrink-0 items-center gap-2 uppercase tracking-wider">
           <button
             onClick={() => setEditing((v) => !v)}
             className="rounded px-2 py-0.5 text-[10.5px] tracking-wider text-ink-3 hover:bg-surface hover:text-ink"
