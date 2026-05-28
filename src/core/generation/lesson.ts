@@ -5,6 +5,7 @@ import { streamText, Output } from "ai";
 import { z } from "zod";
 import { getModel } from "../ai/service";
 import { getModelId } from "../settings";
+import { dlog, since } from "../debug";
 import { lessonRepo, conceptRepo, type ConceptRow } from "../store/repositories";
 import type { Block, SuggestedBranch, LensId } from "../types";
 
@@ -88,6 +89,8 @@ export async function generateLesson(
   onPartial?: (partial: PartialLesson) => void,
   signal?: AbortSignal,
 ) {
+  const t0 = performance.now();
+  dlog("gen", "start:", concept.title);
   const focus = ctx.summary ? `\nFocus (what this concept should cover): ${ctx.summary}` : "";
   const siblings = ctx.siblings.length
     ? `\nSibling concepts taught separately — do NOT re-explain these: ${ctx.siblings.join(", ")}.`
@@ -170,13 +173,20 @@ FORMAT:
   // for-await below without awaiting output, and an un-awaited rejection would
   // surface as an unhandled promise rejection. `await` still sees a rejection on
   // the success path (e.g. a parse error), so real failures still propagate.
+  dlog("gen", "stream created @", since(t0));
   const outputPromise = result.output;
   void outputPromise.then(undefined, () => {});
 
+  let n = 0;
   for await (const partial of result.partialOutputStream) {
+    n += 1;
+    if (n === 1) dlog("gen", "first partial @", since(t0));
+    else if (n % 25 === 0) dlog("gen", `partial #${n}, ${(partial as PartialLesson)?.blocks?.length ?? 0} blocks`);
     onPartial?.(partial as unknown as PartialLesson);
   }
+  dlog("gen", `stream ended: ${n} partials @`, since(t0));
   const output = await outputPromise;
+  dlog("gen", "output ready @", since(t0));
 
   const now = Date.now();
   const blocks = output.blocks as Block[];

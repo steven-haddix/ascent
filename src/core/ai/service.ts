@@ -7,6 +7,16 @@
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { invoke, Channel } from "@tauri-apps/api/core";
 import { getModelId } from "../settings";
+import { dlog, now, since } from "../debug";
+
+function modelOf(body: string | null): string | undefined {
+  if (!body) return undefined;
+  try {
+    return JSON.parse(body).model as string | undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 interface AiResponse {
   status: number;
@@ -47,6 +57,8 @@ async function streamingFetch(
   signal?: AbortSignal | null,
 ): Promise<Response> {
   if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
+  const t0 = now();
+  dlog("stream", "request →", modelOf(body));
   let controller!: ReadableStreamDefaultController<Uint8Array>;
   const stream = new ReadableStream<Uint8Array>({
     start(c) {
@@ -54,11 +66,14 @@ async function streamingFetch(
     },
   });
   let closed = false;
+  let chunks = 0;
+  let bytes = 0;
   let rejectHead: ((reason: unknown) => void) | null = null;
   // Aborting (idle watchdog or manual Stop) both errors the body stream AND rejects
   // the head wait below — so a stall BEFORE the first byte (e.g. a very slow
   // time-to-first-byte) is recoverable instead of hanging forever on the pending invoke.
   const onAbort = () => {
+    dlog("stream", "aborted @", since(t0));
     rejectHead?.(new DOMException("Aborted", "AbortError"));
     if (closed) return;
     closed = true;
@@ -68,12 +83,19 @@ async function streamingFetch(
   const channel = new Channel<StreamMsg>();
   channel.onmessage = (msg) => {
     if (closed) return;
-    if (msg.event === "chunk") controller.enqueue(base64ToBytes(msg.data));
-    else if (msg.event === "done") {
+    if (msg.event === "chunk") {
+      const b = base64ToBytes(msg.data);
+      chunks += 1;
+      bytes += b.length;
+      if (chunks === 1) dlog("stream", "first chunk @", since(t0));
+      controller.enqueue(b);
+    } else if (msg.event === "done") {
+      dlog("stream", `done: ${chunks} chunks, ${bytes}B @`, since(t0));
       closed = true;
       signal?.removeEventListener("abort", onAbort);
       controller.close();
     } else {
+      dlog("stream", "error:", msg.message);
       closed = true;
       signal?.removeEventListener("abort", onAbort);
       controller.error(new Error(msg.message));
@@ -86,6 +108,7 @@ async function streamingFetch(
     invoke<StreamHead>("ai_stream", { channel, url, method, headers, body }).then(resolve, reject);
   });
   rejectHead = null;
+  dlog("stream", `head ${head.status} @`, since(t0));
   return new Response(stream, { status: head.status, headers: head.headers });
 }
 
@@ -106,7 +129,10 @@ const tauriFetch = async (input: RequestInfo | URL, init?: RequestInit): Promise
 
   if (wantsStream) return streamingFetch(url, method, headers, body, init?.signal);
 
+  const t0 = now();
+  dlog("req", "request →", modelOf(body));
   const res = await invoke<AiResponse>("ai_request", { url, method, headers, body });
+  dlog("req", `response ${res.status} @`, since(t0));
   return new Response(res.body, { status: res.status, headers: res.headers });
 };
 

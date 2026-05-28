@@ -8,6 +8,7 @@
 import { generateLesson, type LessonContext, type PartialLesson } from "./lesson";
 import type { ConceptRow } from "../store/repositories";
 import { queryClient } from "../store/queryClient";
+import { dlog } from "../debug";
 
 export interface LessonStreamState {
   status: "streaming" | "error";
@@ -74,7 +75,11 @@ function cleanup(id: string, idleTimer?: ReturnType<typeof setTimeout>) {
  *  instead of a forever "streaming…". */
 export function ensureLessonStream(concept: ConceptRow, ctx: LessonContext): void {
   const id = concept.id;
-  if (running.has(id)) return;
+  if (running.has(id)) {
+    dlog("reg", "dedup — already generating", id);
+    return;
+  }
+  dlog("reg", "ensure →", concept.title);
   running.add(id);
   const controller = new AbortController();
   controllers.set(id, controller);
@@ -86,6 +91,7 @@ export function ensureLessonStream(concept: ConceptRow, ctx: LessonContext): voi
     const armWatchdog = () => {
       if (idleTimer) clearTimeout(idleTimer);
       idleTimer = setTimeout(() => {
+        dlog("reg", `idle ${IDLE_TIMEOUT_MS}ms — aborting stalled stream`, id);
         abortCause.set(id, "idle");
         controller.abort();
       }, IDLE_TIMEOUT_MS);
@@ -106,6 +112,7 @@ export function ensureLessonStream(concept: ConceptRow, ctx: LessonContext): voi
       queryClient.setQueryData(["lesson", id], row);
       queryClient.invalidateQueries({ queryKey: ["concepts"] });
       cleanup(id, idleTimer);
+      dlog("reg", "complete:", id);
       setSnapshot(id, null); // done — observers now read the lesson from the query cache
     } catch (err) {
       cleanup(id, idleTimer);
@@ -119,6 +126,7 @@ export function ensureLessonStream(concept: ConceptRow, ctx: LessonContext): voi
             : err instanceof Error
               ? err.message
               : String(err);
+      dlog("reg", "error:", cause ?? "exception", "—", error);
       setSnapshot(id, { status: "error", partial: null, error });
     }
   })();
@@ -129,6 +137,7 @@ export function ensureLessonStream(concept: ConceptRow, ctx: LessonContext): voi
 export function cancelLessonStream(id: string): void {
   const controller = controllers.get(id);
   if (!controller) return;
+  dlog("reg", "cancel (manual stop)", id);
   abortCause.set(id, "manual");
   controller.abort();
 }
