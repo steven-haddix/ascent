@@ -89,6 +89,53 @@ function SuggestedBranches({
   );
 }
 
+/** Top-right control to regenerate a lesson, with a two-step confirm so a misclick
+ *  doesn't overwrite a good lesson. */
+function RegenerateButton({ generating, onConfirm }: { generating: boolean; onConfirm: () => void }) {
+  const [confirming, setConfirming] = useState(false);
+
+  if (generating) {
+    return (
+      <span className="flex shrink-0 items-center gap-1.5 font-sans text-[11.5px] text-ink-3">
+        <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />
+        Regenerating…
+      </span>
+    );
+  }
+  if (confirming) {
+    return (
+      <span className="flex shrink-0 items-center gap-1.5 font-sans text-[11.5px]">
+        <span className="text-ink-3">Replace this lesson?</span>
+        <button
+          onClick={() => {
+            setConfirming(false);
+            onConfirm();
+          }}
+          className="rounded-md bg-ink px-2 py-0.5 font-medium text-surface hover:bg-accent"
+        >
+          Regenerate
+        </button>
+        <button
+          onClick={() => setConfirming(false)}
+          className="rounded-md border border-rule px-2 py-0.5 text-ink-2 hover:border-rule-strong hover:text-ink"
+        >
+          Cancel
+        </button>
+      </span>
+    );
+  }
+  return (
+    <button
+      onClick={() => setConfirming(true)}
+      title="Regenerate this lesson"
+      className="flex shrink-0 items-center gap-1 rounded-md border border-transparent px-2 py-1 font-sans text-[11.5px] text-ink-3 hover:border-rule hover:bg-surface-2 hover:text-ink"
+    >
+      <span className="text-[13px] leading-none">↻</span>
+      Regenerate
+    </button>
+  );
+}
+
 export function LessonPane({
   concept,
   concepts,
@@ -116,8 +163,9 @@ export function LessonPane({
   });
   const [pop, setPop] = useState<{ term: Term; rect: DOMRect } | null>(null);
 
-  // While streaming, render the partial; once persisted, the final lesson wins.
-  const display = lesson ?? partial;
+  // While generating (first time OR regenerating), show the live stream; otherwise
+  // the persisted lesson wins — so a regenerate visibly replaces the old one.
+  const display = generating ? partial : (lesson ?? partial);
   const subtitle = display?.subtitle ?? null;
   const blocks = ((display?.blocks ?? []) as Block[]).filter((b) =>
     b.kind ? (b.kind === "section" ? !!b.label?.trim() : !!b.text?.trim()) : false,
@@ -126,13 +174,16 @@ export function LessonPane({
 
   return (
     <div className="mx-auto max-w-[720px] px-12 pb-24 pt-10">
-      <div className="mb-4 flex items-center font-mono text-[11.5px] text-ink-3">
-        {path.map((b, i) => (
-          <span key={i}>
-            {i > 0 && <span className="px-1 text-ink-4">/</span>}
-            <span className={i === path.length - 1 ? "text-ink" : ""}>{b}</span>
-          </span>
-        ))}
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center overflow-hidden whitespace-nowrap font-mono text-[11.5px] text-ink-3">
+          {path.map((b, i) => (
+            <span key={i}>
+              {i > 0 && <span className="px-1 text-ink-4">/</span>}
+              <span className={i === path.length - 1 ? "text-ink" : ""}>{b}</span>
+            </span>
+          ))}
+        </div>
+        {lesson && <RegenerateButton generating={generating} onConfirm={retry} />}
       </div>
 
       <h1 className="font-serif text-4xl font-normal leading-tight tracking-tight text-ink">{concept.title}</h1>
