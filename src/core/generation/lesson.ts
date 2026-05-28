@@ -13,8 +13,11 @@ const LessonSchema = z.object({
   blocks: z
     .array(
       z.object({
-        kind: z.enum(["paragraph", "callout", "section", "code", "table"]),
-        text: z.string().optional().describe("paragraph body, callout body, or source for a `code` block"),
+        kind: z.enum(["paragraph", "callout", "section", "code", "table", "math"]),
+        text: z
+          .string()
+          .optional()
+          .describe("paragraph/callout body, `code` source, or LaTeX (no delimiters) for a `math` block"),
         label: z.string().optional().describe("callout label (e.g. 'Notice') or section label"),
         hint: z.string().optional().describe("optional one-line section hint"),
         terms: z
@@ -128,6 +131,10 @@ FORMAT:
   side — comparing approaches, options, eras, properties, trade-offs. Keep cells short (a few
   words). Prefer it over prose whenever the content is inherently tabular. Optional \`title\`
   caption; refer to it from the surrounding text.
+- Use REAL math, never ASCII. For a standalone equation, use a "math" block with \`text\` set to
+  LaTeX (no surrounding dollar signs). For math inside a sentence, wrap it in single dollar signs
+  right in the paragraph text — e.g. "the score is $QK^T/\\sqrt{d_k}$". Always prefer rendered
+  notation over writing things like "d_k" or "Q times K transpose" in prose.
 - Every block must have content: paragraph and callout need non-empty text, section needs a label, code needs non-empty text.
 - Finish by suggesting 2-4 next concepts. No markdown.`,
   });
