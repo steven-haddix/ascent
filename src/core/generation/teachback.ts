@@ -38,6 +38,30 @@ const AUDIENCE_LABEL: Record<TeachAudience, string> = {
   expert: "a domain expert",
 };
 
+// What "good" means per audience. This is what actually recalibrates the rubric —
+// the audience is no longer just a label, it changes how clarity/accuracy/
+// completeness are judged. Gaps may still point to technical next-steps; the
+// audience only governs how the explanation itself is *scored* and worded.
+const AUDIENCE_RUBRIC: Record<TeachAudience, string> = {
+  child:
+    "AUDIENCE — a smart 12-year-old. Grade whether the core IDEA comes across in plain, vivid " +
+    "language. Reward intuition, analogy, and a correct mental model. Do NOT require technical " +
+    "terms or named components — omitting jargon is correct here, and leaning on it would HURT " +
+    "clarity, not help it. Score accuracy and completeness on the idea, not the vocabulary: an " +
+    "explanation that conveys the right picture should score well even with zero jargon. Still " +
+    "flag genuine conceptual mistakes, phrased simply. You may list technical concepts as gaps " +
+    "to explore next, but treat them as optional deeper dives — never imply the explanation " +
+    "failed for not using those terms.",
+  peer:
+    "AUDIENCE — a knowledgeable peer. Expect the core mechanism explained correctly with the key " +
+    "concepts named, but a worked intuition counts as much as formal precision. Flag missing core " +
+    "ideas or imprecision; gaps may name real concepts.",
+  expert:
+    "AUDIENCE — a domain expert. Demand precision, correct terminology, and awareness of subtleties " +
+    "and edge cases. Penalize hand-waving, vagueness, or hidden misconceptions; reward rigor and " +
+    "completeness. Gaps should be specific and technical.",
+};
+
 export interface TeachResult {
   rubric: RubricScores;
   verdict: string;
@@ -58,7 +82,7 @@ export async function gradeTeachBack(
   audience: TeachAudience,
 ): Promise<TeachResult> {
   const who = AUDIENCE_LABEL[audience];
-  const focus = ctx.summary ? `\nThis concept should cover: ${ctx.summary}` : "";
+  const focus = ctx.summary ? `\nWhat this concept is about: ${ctx.summary}` : "";
   const { output } = await generateText({
     model: getModel(MODELS.default),
     output: Output.object({ schema: GradeSchema }),
@@ -70,13 +94,14 @@ They were asked to explain it to ${who}. Here is their explanation:
 ${text}
 """
 
-Grade it. Score the rubric 0..1 (clarity, accuracy, completeness, mental model).
-Write a 2-3 sentence verdict addressed to the learner. Pick 3-8 short spans copied
-VERBATIM from their explanation (the \`text\` field MUST be an exact substring of the
-explanation above) and mark each strong / vague / gap with a one-line note. List 0-3 gaps
-as concepts to study next (none if the explanation is excellent). Judge against explaining
-to ${who}: reward clarity and intuition for a beginner, precision and edge cases for an
-expert. No markdown.`,
+${AUDIENCE_RUBRIC[audience]}
+
+Grade it. Score the rubric 0..1 (clarity, accuracy, completeness, mental model) BY THAT
+STANDARD. Write a 2-3 sentence verdict addressed to the learner, in language that fits the
+audience. Pick 3-8 short spans copied VERBATIM from their explanation (the \`text\` field
+MUST be an exact substring of the explanation above) and mark each strong / vague / gap with
+a one-line note. List 0-3 gaps as concepts to study next (none if the explanation is
+excellent). No markdown.`,
   });
   return output as TeachResult;
 }
