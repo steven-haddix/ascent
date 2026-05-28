@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ConceptRow } from "../core/store/repositories";
 import { useChat } from "../core/store/hooks";
 import { TUTOR_MODES, type ChatContext, type TutorMode } from "../core/generation/tutor";
@@ -27,11 +27,33 @@ function Bubble({ role, text }: { role: "user" | "ai"; text: string }) {
 /** Chat docked at the bottom of the lesson pane. The input bar is always visible
  *  (ask while reading); the conversation panel slides up on focus/send/chevron
  *  and minimizes back down. */
-export function ChatDrawer({ concept, ctx }: { concept: ConceptRow; ctx: ChatContext }) {
+export function ChatDrawer({
+  concept,
+  ctx,
+  onHeightChange,
+}: {
+  concept: ConceptRow;
+  ctx: ChatContext;
+  /** reports the drawer's rendered height so the lesson can reserve scroll room
+   *  beneath it (it overlays the lesson, so the lesson pads by this much). */
+  onHeightChange?: (height: number) => void;
+}) {
   const { turns, streaming, sending, send } = useChat(concept, ctx);
   const [open, setOpen] = useState(false);
   const [val, setVal] = useState("");
   const [mode, setMode] = useState<TutorMode>(() => getTutorMode());
+
+  const rootRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = rootRef.current;
+    if (!el || !onHeightChange) return;
+    // Fires through the open/close max-height transition too, so the lesson's
+    // bottom padding tracks the drawer as it grows and shrinks.
+    const ro = new ResizeObserver(() => onHeightChange(el.offsetHeight));
+    ro.observe(el);
+    onHeightChange(el.offsetHeight);
+    return () => ro.disconnect();
+  }, [onHeightChange]);
 
   const submit = (text: string) => {
     if (!text.trim() || sending) return;
@@ -47,7 +69,10 @@ export function ChatDrawer({ concept, ctx }: { concept: ConceptRow; ctx: ChatCon
   const hasConversation = turns.length > 0 || streaming !== null;
 
   return (
-    <div className="absolute inset-x-0 bottom-0 z-20 border-t border-rule bg-surface shadow-[0_-4px_16px_rgba(26,24,21,0.06)]">
+    <div
+      ref={rootRef}
+      className="absolute inset-x-0 bottom-0 z-20 border-t border-rule bg-surface shadow-[0_-4px_16px_rgba(26,24,21,0.06)]"
+    >
       {/* Expandable conversation panel — slides up/down. */}
       <div
         className={`overflow-hidden transition-[max-height] duration-200 ease-out ${open ? "max-h-[55vh]" : "max-h-0"}`}

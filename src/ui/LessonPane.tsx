@@ -148,12 +148,16 @@ export function LessonPane({
   path,
   topicTitle,
   onFork,
+  bottomInset,
 }: {
   concept: ConceptRow;
   concepts: ConceptRow[];
   path: string[];
   topicTitle: string;
   onFork: (title: string, summary?: string) => void;
+  /** scroll room to reserve below the content so the chat drawer (which overlays
+   *  the bottom of the lesson) never traps the last content out of reach. */
+  bottomInset?: number;
 }) {
   const siblings = concepts
     .filter((c) => c.parentId === concept.parentId && c.id !== concept.id)
@@ -179,7 +183,7 @@ export function LessonPane({
   const branches = (lesson?.suggestedBranches as SuggestedBranch[] | undefined) ?? [];
 
   return (
-    <div className="mx-auto max-w-[720px] px-12 pb-24 pt-10">
+    <div className="mx-auto max-w-[720px] px-12 pt-10" style={{ paddingBottom: bottomInset ?? 96 }}>
       <div className="mb-4 flex items-center justify-between gap-3">
         <div className="flex min-w-0 items-center overflow-hidden whitespace-nowrap font-mono text-[11.5px] text-ink-3">
           {path.map((b, i) => (

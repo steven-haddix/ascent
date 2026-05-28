@@ -157,6 +157,10 @@ export function AppShell(props: AppShellProps) {
   const selected = concepts.find((c) => c.id === selectedConceptId) ?? null;
   const topicTitle = concepts.find((c) => !c.parentId)?.title ?? "";
 
+  // The chat drawer overlays the lesson; track its height so the lesson reserves
+  // matching scroll room beneath its content (you can always scroll past it).
+  const [chatHeight, setChatHeight] = useState(72);
+
   return (
     <div className="flex h-screen flex-col">
       <Topbar />
@@ -180,12 +184,14 @@ export function AppShell(props: AppShellProps) {
                   path={pathTo(concepts, selected.id)}
                   topicTitle={topicTitle}
                   onFork={onFork}
+                  bottomInset={chatHeight + 24}
                 />
               </div>
               <ChatDrawer
                 key={selected.id}
                 concept={selected}
                 ctx={{ topicTitle, path: pathTo(concepts, selected.id), summary: selected.summary }}
+                onHeightChange={setChatHeight}
               />
             </>
           ) : (
