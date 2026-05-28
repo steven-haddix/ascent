@@ -42,6 +42,10 @@ Ascent is built around that loop.
 - **Chat with a tutor** grounded in the exact concept you're on, in the style you prefer —
   **Mentor**, **Socratic**, or **Encyclopedic**.
 - **Take notes** and **quiz yourself** on any concept, right alongside the lesson.
+- **Read and run code in lessons** — for programming and ML topics, lessons include real,
+  syntax-highlighted code inline, and the Code tab on the right lets you **edit and Run**
+  any Python snippet right there. No setup needed. *(The first Run downloads Python in the
+  background — a one-time ~10MB, then it's instant.)*
 - **Teach it back (the Feynman loop):** explain a concept to a 12-year-old, a peer, or an
   expert; get a graded breakdown (clarity, accuracy, completeness, mental model), see your
   own words annotated, and watch your weak spots automatically become new branches to learn.
@@ -51,7 +55,6 @@ Ascent is built around that loop.
 ## What's coming
 
 - A ⌘K command palette and a graph view of your whole tree
-- Runnable code lessons (write and execute Python inline)
 - More model providers (and the option to run fully local)
 - Optional, opt-in sync across your devices
 - Windows and Linux builds
