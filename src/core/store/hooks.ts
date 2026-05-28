@@ -2,12 +2,25 @@
 // to these hooks, never to drizzle directly — keeping the swap-to-sync seam.
 import { useEffect, useState } from "react";
 import { QueryClient, useMutation, useQuery } from "@tanstack/react-query";
-import { topicRepo, conceptRepo, lessonRepo, chatRepo, noteRepo, type ConceptRow } from "./repositories";
+import {
+  topicRepo,
+  conceptRepo,
+  lessonRepo,
+  chatRepo,
+  noteRepo,
+  teachRepo,
+  type ConceptRow,
+} from "./repositories";
 import { startTopic } from "../generation/outline";
 import { generateLesson, type LessonContext, type PartialLesson } from "../generation/lesson";
 import { chat, type ChatContext } from "../generation/tutor";
 import { generateQuiz, type QuizQuestion } from "../generation/quiz";
+import { gradeTeachBack, scoreFromRubric, type TeachContext } from "../generation/teachback";
+import type { TeachAudience } from "../types";
 import { getTutorMode } from "../settings";
+
+const clamp01 = (n: number) => Math.max(0, Math.min(1, n));
+const round2 = (n: number) => Math.round(n * 100) / 100;
 
 export const queryClient = new QueryClient();
 
@@ -175,5 +188,76 @@ export function useGenerateQuiz(concept: ConceptRow, topicTitle: string) {
   return useMutation({
     mutationFn: () => generateQuiz(concept, topicTitle),
     onSuccess: (questions) => queryClient.setQueryData(["quiz", concept.id], questions),
+  });
+}
+
+/** Teach-back attempts for a concept, oldest → newest (the last is the current grade). */
+export const useTeachAttempts = (conceptId: string | null) =>
+  useQuery({
+    queryKey: ["teach", conceptId],
+    queryFn: () => teachRepo.byConcept(conceptId!),
+    enabled: !!conceptId,
+  });
+
+/** The Feynman loop: grade the explanation → persist the attempt → bump the
+ *  concept's mastery (app owns the math) → auto-fork each gap as a remedial
+ *  branch. Returns the grade + computed masteryDelta for the result view. */
+export function useTeachBack(concept: ConceptRow, ctx: TeachContext) {
+  return useMutation({
+    mutationFn: async ({ text, audience }: { text: string; audience: TeachAudience }) => {
+      const grade = await gradeTeachBack(concept, ctx, text, audience);
+
+      const attemptScore = scoreFromRubric(grade.rubric);
+      const oldMastery = concept.mastery;
+      // EMA toward this attempt — repeated good teach-backs converge up; a weak one pulls down.
+      const newMastery = clamp01(round2(0.4 * oldMastery + 0.6 * attemptScore));
+      const masteryDelta = round2(newMastery - oldMastery);
+      const now = Date.now();
+
+      await teachRepo.create({
+        id: crypto.randomUUID(),
+        conceptId: concept.id,
+        audience,
+        text,
+        rubric: grade.rubric,
+        verdict: grade.verdict,
+        annotations: grade.annotations,
+        gaps: grade.gaps,
+        masteryDelta,
+        createdAt: now,
+      });
+
+      await conceptRepo.update(concept.id, {
+        mastery: newMastery,
+        status:
+          newMastery >= 0.8 ? "complete" : concept.status === "queued" ? "visited" : concept.status,
+      });
+
+      // Each gap becomes a remedial child concept; it generates a lesson on first
+      // visit. Await all inserts so the refetch below sees the new branches.
+      await Promise.all(
+        grade.gaps.map((gap, i) =>
+          conceptRepo.create({
+            id: crypto.randomUUID(),
+            topicId: concept.topicId,
+            parentId: concept.id,
+            title: gap.title,
+            summary: gap.reason,
+            status: "queued",
+            state: "outline",
+            order: now + i,
+            mastery: 0,
+            remedial: true,
+            createdAt: now,
+          }),
+        ),
+      );
+
+      return { ...grade, masteryDelta };
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["teach", concept.id] });
+      queryClient.invalidateQueries({ queryKey: ["concepts"] });
+    },
   });
 }

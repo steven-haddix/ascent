@@ -90,6 +90,11 @@ export function ConceptTree({
         )}
         <StatusDot status={c.status} />
         <span className="flex-1 truncate">{c.title}</span>
+        {c.remedial && (
+          <span title="Remedial branch — from a teach-back gap" className="shrink-0 font-mono text-[10px] text-accent">
+            ↻
+          </span>
+        )}
         {c.mastery > 0 && <span className="font-mono text-[10px] text-ink-3">{Math.round(c.mastery * 100)}</span>}
       </div>
     );

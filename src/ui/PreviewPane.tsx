@@ -19,8 +19,11 @@ export function PreviewPane({
     queryFn: async () => (await lessonRepo.get(concept.id)) ?? null,
   });
 
-  const declared = (lesson.data?.lenses as LensId[] | undefined) ?? ["notes"];
-  const lenses = getPreviewLenses(declared.length ? declared : ["notes"]);
+  // Notes and Teach are core (subject-agnostic) — always offered. Quiz/Code arrive
+  // from the lesson's declared lenses. Deduped, Notes first, Teach last.
+  const fromLesson = (lesson.data?.lenses as LensId[] | undefined) ?? [];
+  const declared = Array.from(new Set<LensId>(["notes", ...fromLesson, "teach"]));
+  const lenses = getPreviewLenses(declared);
   const ids = lenses.map((l) => l.id).join(",");
   const [active, setActive] = useState<LensId>("notes");
 

@@ -88,7 +88,7 @@ concrete; no filler; no markdown.`,
     subtitle: output.subtitle,
     blocks: output.blocks as Block[],
     suggestedBranches: output.suggestedBranches as SuggestedBranch[],
-    lenses: ["notes", "quiz", "chat"] as LensId[],
+    lenses: ["notes", "quiz", "chat", "teach"] as LensId[],
     model: MODELS.default,
     generatedAt: now,
   };

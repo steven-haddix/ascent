@@ -15,6 +15,13 @@
       "when": 1779922400624,
       "tag": "0001_cultured_the_executioner",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1779926647501,
+      "tag": "0002_flawless_violations",
+      "breakpoints": true
     }
   ]
 }

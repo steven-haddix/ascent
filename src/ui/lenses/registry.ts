@@ -2,12 +2,14 @@ import type { Lens } from "./types";
 import type { LensId } from "../../core/types";
 import { NotesLens } from "./NotesLens";
 import { QuizLens } from "./QuizLens";
+import { TeachLens } from "./TeachLens";
 
 // Registered preview-pane lenses. `chat` is the bottom drawer (not here);
 // `code` (M6) and `viz` (v2) register here later.
 const LENSES: Partial<Record<LensId, Lens>> = {
   notes: { id: "notes", label: "Notes", icon: "✎", Renderer: NotesLens },
   quiz: { id: "quiz", label: "Quiz", icon: "?", Renderer: QuizLens },
+  teach: { id: "teach", label: "Teach", icon: "◎", Renderer: TeachLens },
 };
 
 export function getLens(id: LensId): Lens | undefined {

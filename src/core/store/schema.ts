@@ -1,7 +1,7 @@
 // Drizzle schema — the local SQLite source of truth. Subject-agnostic.
 import { sqliteTable, text, integer, real } from "drizzle-orm/sqlite-core";
 import { relations, sql } from "drizzle-orm";
-import type { Block, SuggestedBranch, LensId, ChatAttachment } from "../types";
+import type { Block, SuggestedBranch, LensId, ChatAttachment, RubricScores, TeachAnnotation, TeachGap } from "../types";
 
 /** A subject the learner is studying = one tree root. */
 export const topics = sqliteTable("topics", {
@@ -70,12 +70,31 @@ export const chatTurns = sqliteTable("chat_turns", {
   createdAt: integer("created_at").notNull(),
 });
 
+/** A Feynman teach-back attempt and its structured grade (one concept, many attempts). */
+export const teachAttempts = sqliteTable("teach_attempts", {
+  id: text("id").primaryKey(),
+  conceptId: text("concept_id")
+    .notNull()
+    .references(() => concepts.id),
+  audience: text("audience").notNull(),
+  /** the learner's explanation, verbatim */
+  text: text("text").notNull(),
+  rubric: text("rubric", { mode: "json" }).$type<RubricScores>().notNull(),
+  verdict: text("verdict").notNull(),
+  annotations: text("annotations", { mode: "json" }).$type<TeachAnnotation[]>().notNull().default(sql`'[]'`),
+  gaps: text("gaps", { mode: "json" }).$type<TeachGap[]>().notNull().default(sql`'[]'`),
+  /** how much this attempt moved the concept's mastery (computed in-app) */
+  masteryDelta: real("mastery_delta").notNull().default(0),
+  createdAt: integer("created_at").notNull(),
+});
+
 export const topicsRelations = relations(topics, ({ many }) => ({ concepts: many(concepts) }));
 export const conceptsRelations = relations(concepts, ({ one, many }) => ({
   topic: one(topics, { fields: [concepts.topicId], references: [topics.id] }),
   lesson: one(lessons, { fields: [concepts.id], references: [lessons.conceptId] }),
   notes: many(notes),
   chatTurns: many(chatTurns),
+  teachAttempts: many(teachAttempts),
 }));
 export const lessonsRelations = relations(lessons, ({ one }) => ({
   concept: one(concepts, { fields: [lessons.conceptId], references: [concepts.id] }),
@@ -85,4 +104,7 @@ export const notesRelations = relations(notes, ({ one }) => ({
 }));
 export const chatTurnsRelations = relations(chatTurns, ({ one }) => ({
   concept: one(concepts, { fields: [chatTurns.conceptId], references: [concepts.id] }),
+}));
+export const teachAttemptsRelations = relations(teachAttempts, ({ one }) => ({
+  concept: one(concepts, { fields: [teachAttempts.conceptId], references: [concepts.id] }),
 }));

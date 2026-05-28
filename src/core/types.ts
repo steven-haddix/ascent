@@ -2,7 +2,7 @@
 
 /** Right-pane capability modules a lesson can declare. Core lenses are always
  *  available; `code` (and later `viz`) are opt-in per lesson. */
-export type LensId = "notes" | "quiz" | "chat" | "code" | "viz";
+export type LensId = "notes" | "quiz" | "chat" | "teach" | "code" | "viz";
 
 export type ConceptStatus = "queued" | "current" | "visited" | "complete";
 /** Generation lifecycle for a concept's lesson body. */
@@ -36,4 +36,32 @@ export interface SuggestedBranch {
 export interface ChatAttachment {
   kind: string;
   ref: string;
+}
+
+// --- Feynman teach-back ---
+
+/** Who the learner explains to — shapes how the grader weights the rubric. */
+export type TeachAudience = "child" | "peer" | "expert";
+
+/** Teach-back rubric — each dimension scored 0..1. */
+export interface RubricScores {
+  clarity: number;
+  accuracy: number;
+  completeness: number;
+  /** quality of the underlying mental model (analogies, intuition, connections) */
+  model: number;
+}
+
+/** A span of the learner's explanation, marked by the grader. */
+export interface TeachAnnotation {
+  /** verbatim substring of the explanation, so the UI can re-highlight it in place */
+  text: string;
+  kind: "strong" | "vague" | "gap";
+  note: string;
+}
+
+/** A concept the learner missed — auto-forked into the tree as a remedial branch. */
+export interface TeachGap {
+  title: string;
+  reason: string;
 }
