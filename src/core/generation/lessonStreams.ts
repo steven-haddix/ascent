@@ -35,6 +35,12 @@ export function getLessonStreamSnapshot(id: string): LessonStreamState | null {
   return snapshots.get(id) ?? null; // `null` is a stable reference between renders
 }
 
+/** Is a generation currently in flight for this concept? Useful for tools that
+ *  want to refuse to touch the lesson while it is being (re)generated. */
+export function isLessonStreaming(id: string): boolean {
+  return running.has(id);
+}
+
 export function subscribeLessonStream(id: string, cb: () => void): () => void {
   let subs = subscribers.get(id);
   if (!subs) {
