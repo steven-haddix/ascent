@@ -34,7 +34,7 @@ type Action =
   | { type: "NEXT" }
   | { type: "BACK" }
   | { type: "RESTART" }
-  | { type: "GENERATE" }
+  | { type: "GENERATE"; title: string }
   | { type: "RETRY" }
   | { type: "FAIL"; message: string };
 
@@ -111,7 +111,7 @@ function reducer(s: State, a: Action): State {
         planNonce: s.planNonce + 1,
       };
     case "GENERATE":
-      return { ...s, status: "generating", error: null };
+      return { ...s, title: a.title, status: "generating", error: null };
     case "RETRY":
       return { ...s, status: "planning", error: null, planNonce: s.planNonce + 1 };
     case "FAIL":
@@ -153,13 +153,14 @@ export function TopicIntake({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.planNonce]);
 
-  const generate = (brief?: TopicBrief) => {
-    dispatch({ type: "GENERATE" });
-    onGenerate(state.title, brief);
+  const generate = (title: string, brief?: TopicBrief) => {
+    dispatch({ type: "GENERATE", title });
+    onGenerate(title, brief);
   };
+  const brief = (): TopicBrief => ({ summary: state.summary, answers: state.history });
 
   if (state.status === "naming") {
-    return <Naming onContinue={(t) => dispatch({ type: "BEGIN", title: t })} onSkip={(t) => onGenerate(t, undefined)} />;
+    return <Naming onContinue={(t) => dispatch({ type: "BEGIN", title: t })} onSkip={(t) => generate(t, undefined)} />;
   }
 
   if (state.status === "planning") {
@@ -245,7 +246,7 @@ export function TopicIntake({
                 Cancel
               </button>
               <button
-                onClick={() => generate({ summary: state.summary, answers: state.history })}
+                onClick={() => generate(state.title, brief())}
                 className="rounded-md bg-ink px-4 py-2 text-sm font-medium text-surface hover:bg-accent"
               >
                 Generate tree
@@ -270,7 +271,7 @@ export function TopicIntake({
                 Cancel
               </button>
               <button
-                onClick={() => generate({ summary: state.summary, answers: state.history })}
+                onClick={() => generate(state.title, brief())}
                 className="rounded-md bg-ink px-4 py-2 text-sm font-medium text-surface hover:bg-accent"
               >
                 Try again
@@ -292,7 +293,7 @@ export function TopicIntake({
             Cancel
           </button>
           <button
-            onClick={() => onGenerate(state.title, undefined)}
+            onClick={() => generate(state.title, undefined)}
             className="text-sm text-ink-2 hover:text-ink"
           >
             Skip &amp; generate
