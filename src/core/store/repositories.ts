@@ -1,9 +1,9 @@
 // Typed repositories — the ONLY way the rest of the app touches the store.
 // Components/services never import drizzle directly; this seam is what lets us
 // later swap in a reactive layer (TanStack DB) or a sync engine without UI churn.
-import { asc, eq } from "drizzle-orm";
+import { asc, eq, sql } from "drizzle-orm";
 import { db } from "./client";
-import { topics, concepts, lessons, notes, chatTurns, teachAttempts } from "./schema";
+import { topics, concepts, lessons, notes, chatTurns, teachAttempts, usageEvents } from "./schema";
 
 export type TopicInsert = typeof topics.$inferInsert;
 export type TopicRow = typeof topics.$inferSelect;
@@ -14,6 +14,37 @@ export type NoteInsert = typeof notes.$inferInsert;
 export type ChatTurnInsert = typeof chatTurns.$inferInsert;
 export type TeachAttemptInsert = typeof teachAttempts.$inferInsert;
 export type TeachAttemptRow = typeof teachAttempts.$inferSelect;
+export type UsageEventInsert = typeof usageEvents.$inferInsert;
+export type UsageEventRow = typeof usageEvents.$inferSelect;
+
+/** All-time usage roll-up. `hasUnknownCost` is true when any event couldn't be
+ *  priced, so the UI can flag the dollar total as a lower bound. */
+export interface UsageTotals {
+  events: number;
+  inputTokens: number;
+  outputTokens: number;
+  cachedInputTokens: number;
+  costUsd: number;
+  hasUnknownCost: boolean;
+}
+
+export interface UsageByModel {
+  provider: string;
+  model: string;
+  events: number;
+  inputTokens: number;
+  outputTokens: number;
+  costUsd: number;
+  hasUnknownCost: boolean;
+}
+
+/** One UTC day's spend, for the 30-day sparkline. */
+export interface UsageDay {
+  day: string; // YYYY-MM-DD
+  costUsd: number;
+  inputTokens: number;
+  outputTokens: number;
+}
 
 export const topicRepo = {
   list: () => db.select().from(topics).orderBy(asc(topics.createdAt)).all(),
@@ -57,4 +88,76 @@ export const teachRepo = {
       .orderBy(asc(teachAttempts.createdAt))
       .all(),
   create: (value: TeachAttemptInsert) => db.insert(teachAttempts).values(value).run(),
+};
+
+/** Token-usage ledger. Append-only inserts (from the AI usage middleware) plus
+ *  the aggregations the Settings Usage view reads. Tokens summed in SQL; cost is
+ *  the pre-computed per-event snapshot, so totals are a simple SUM. */
+export const usageRepo = {
+  insert: (value: UsageEventInsert) => db.insert(usageEvents).values(value).run(),
+
+  totals: async (): Promise<UsageTotals> => {
+    const r = await db
+      .select({
+        events: sql<number>`count(*)`,
+        inputTokens: sql<number>`coalesce(sum(${usageEvents.inputTokens}), 0)`,
+        outputTokens: sql<number>`coalesce(sum(${usageEvents.outputTokens}), 0)`,
+        cachedInputTokens: sql<number>`coalesce(sum(${usageEvents.cachedInputTokens}), 0)`,
+        costUsd: sql<number>`coalesce(sum(${usageEvents.costUsd}), 0)`,
+        unknown: sql<number>`coalesce(sum(case when ${usageEvents.costSource} = 'unknown' then 1 else 0 end), 0)`,
+      })
+      .from(usageEvents)
+      .get();
+    return {
+      events: r?.events ?? 0,
+      inputTokens: r?.inputTokens ?? 0,
+      outputTokens: r?.outputTokens ?? 0,
+      cachedInputTokens: r?.cachedInputTokens ?? 0,
+      costUsd: r?.costUsd ?? 0,
+      hasUnknownCost: (r?.unknown ?? 0) > 0,
+    };
+  },
+
+  byModel: async (): Promise<UsageByModel[]> => {
+    const rows = await db
+      .select({
+        provider: usageEvents.provider,
+        model: usageEvents.model,
+        events: sql<number>`count(*)`,
+        inputTokens: sql<number>`coalesce(sum(${usageEvents.inputTokens}), 0)`,
+        outputTokens: sql<number>`coalesce(sum(${usageEvents.outputTokens}), 0)`,
+        costUsd: sql<number>`coalesce(sum(${usageEvents.costUsd}), 0)`,
+        unknown: sql<number>`coalesce(sum(case when ${usageEvents.costSource} = 'unknown' then 1 else 0 end), 0)`,
+      })
+      .from(usageEvents)
+      .groupBy(usageEvents.provider, usageEvents.model)
+      .all();
+    return rows.map((r) => ({
+      provider: r.provider,
+      model: r.model,
+      events: r.events,
+      inputTokens: r.inputTokens,
+      outputTokens: r.outputTokens,
+      costUsd: r.costUsd,
+      hasUnknownCost: r.unknown > 0,
+    }));
+  },
+
+  /** Per-day spend since `sinceMs` (UTC day buckets), unordered. */
+  daily: async (sinceMs: number): Promise<UsageDay[]> => {
+    const dayExpr = sql<string>`strftime('%Y-%m-%d', ${usageEvents.createdAt} / 1000, 'unixepoch')`;
+    return db
+      .select({
+        day: dayExpr,
+        costUsd: sql<number>`coalesce(sum(${usageEvents.costUsd}), 0)`,
+        inputTokens: sql<number>`coalesce(sum(${usageEvents.inputTokens}), 0)`,
+        outputTokens: sql<number>`coalesce(sum(${usageEvents.outputTokens}), 0)`,
+      })
+      .from(usageEvents)
+      .where(sql`${usageEvents.createdAt} >= ${sinceMs}`)
+      .groupBy(dayExpr)
+      .all();
+  },
+
+  clear: () => db.delete(usageEvents).run(),
 };

@@ -1,8 +1,18 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { secretStore } from "../core/secrets";
-import { MODEL_OPTIONS, type ModelId } from "../core/ai/models";
-import { getModelId, setModelId, getTutorMode, setTutorMode, THEMES, type Theme } from "../core/settings";
+import { ROUTE_OPTIONS, getRoute } from "../core/ai/routes";
+import {
+  getModelId,
+  setModelId,
+  getRouteId,
+  setRouteId,
+  getTutorMode,
+  setTutorMode,
+  THEMES,
+  type Theme,
+} from "../core/settings";
 import { TUTOR_MODES, type TutorMode } from "../core/generation/tutor";
+import { UsageSection } from "./UsageSection";
 
 function SectionLabel({ children }: { children: ReactNode }) {
   return <div className="mb-2 text-[10.5px] font-medium uppercase tracking-wider text-ink-3">{children}</div>;
@@ -20,17 +30,21 @@ export function Settings({
   onChangeTheme: (t: Theme) => void;
   onClose: () => void;
 }) {
+  const [routeId, setRoute] = useState<string>(() => getRouteId());
+  const route = getRoute(routeId);
   const [hasKey, setHasKey] = useState<boolean | null>(null);
   const [keyInput, setKeyInput] = useState("");
   const [savingKey, setSavingKey] = useState(false);
   const [keyMsg, setKeyMsg] = useState<string | null>(null);
   const [confirmClear, setConfirmClear] = useState(false);
-  const [model, setModel] = useState<ModelId>(() => getModelId());
+  const [model, setModel] = useState<string>(() => getModelId());
   const [tutor, setTutor] = useState<TutorMode>(() => getTutorMode());
 
+  // Re-check the key whenever the active provider changes (each route has its own).
   useEffect(() => {
-    secretStore.hasApiKey().then(setHasKey).catch(() => setHasKey(false));
-  }, []);
+    setHasKey(null);
+    secretStore.hasApiKey(route.secretName).then(setHasKey).catch(() => setHasKey(false));
+  }, [route.secretName]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -46,7 +60,7 @@ export function Settings({
     setSavingKey(true);
     setKeyMsg(null);
     try {
-      await secretStore.setApiKey(v);
+      await secretStore.setApiKey(route.secretName, v);
       setHasKey(true);
       setKeyInput("");
       setKeyMsg("Key saved.");
@@ -59,7 +73,7 @@ export function Settings({
 
   const clearKey = async () => {
     try {
-      await secretStore.clearApiKey();
+      await secretStore.clearApiKey(route.secretName);
       setHasKey(false);
       setConfirmClear(false);
       setKeyMsg("Key removed. Add a new one to keep generating.");
@@ -68,7 +82,18 @@ export function Settings({
     }
   };
 
-  const chooseModel = (id: ModelId) => {
+  // Switching provider re-points the key check (via the effect) and re-validates
+  // the chosen model against the new route's catalog, persisting the resolved id.
+  const chooseRoute = (id: string) => {
+    setRoute(id);
+    setRouteId(id);
+    setKeyMsg(null);
+    const m = getModelId();
+    setModel(m);
+    setModelId(m);
+  };
+
+  const chooseModel = (id: string) => {
     setModel(id);
     setModelId(id);
   };
@@ -97,6 +122,27 @@ export function Settings({
         </div>
 
         <div className="flex flex-col gap-6 px-5 py-5">
+          {/* Provider */}
+          <section>
+            <SectionLabel>Provider</SectionLabel>
+            <div className="flex gap-1.5">
+              {ROUTE_OPTIONS.map((r) => (
+                <button
+                  key={r.id}
+                  onClick={() => chooseRoute(r.id)}
+                  className={`flex-1 rounded-md border px-3 py-2 text-[12.5px] ${
+                    routeId === r.id ? "border-accent bg-accent/10 text-ink" : "border-rule text-ink-2 hover:border-rule-strong"
+                  }`}
+                >
+                  {r.label}
+                </button>
+              ))}
+            </div>
+            <p className="mt-1.5 text-[11px] text-ink-4">
+              Where requests are sent. Each provider keeps its own key in your Keychain.
+            </p>
+          </section>
+
           {/* API key */}
           <section>
             <SectionLabel>API key</SectionLabel>
@@ -112,7 +158,7 @@ export function Settings({
               type="password"
               value={keyInput}
               spellCheck={false}
-              placeholder={hasKey ? "Enter a new key to replace…" : "sk-ant-…"}
+              placeholder={hasKey ? "Enter a new key to replace…" : route.authScheme === "bearer" ? "API key…" : "sk-ant-…"}
               onChange={(e) => setKeyInput(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && saveKey()}
               className="w-full rounded-md border border-rule-strong bg-surface-2 px-3 py-2 font-mono text-sm text-ink outline-none focus:border-accent"
@@ -161,7 +207,7 @@ export function Settings({
           <section>
             <SectionLabel>Model</SectionLabel>
             <div className="flex flex-col gap-1.5">
-              {MODEL_OPTIONS.map((m) => (
+              {route.models.map((m) => (
                 <button
                   key={m.id}
                   onClick={() => chooseModel(m.id)}
@@ -185,6 +231,9 @@ export function Settings({
               Applies to all generation — lessons, chat, quizzes, and teach-back grading.
             </p>
           </section>
+
+          {/* Usage */}
+          <UsageSection />
 
           {/* Appearance */}
           <section>

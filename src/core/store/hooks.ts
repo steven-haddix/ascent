@@ -9,7 +9,11 @@ import {
   chatRepo,
   noteRepo,
   teachRepo,
+  usageRepo,
   type ConceptRow,
+  type UsageTotals,
+  type UsageByModel,
+  type UsageDay,
 } from "./repositories";
 import { startTopic } from "../generation/outline";
 import type { LessonContext } from "../generation/lesson";
@@ -22,7 +26,7 @@ import {
 import { chat, type ChatContext } from "../generation/tutor";
 import { generateQuiz, type QuizQuestion } from "../generation/quiz";
 import { gradeTeachBack, scoreFromRubric, type TeachContext } from "../generation/teachback";
-import type { TeachAudience } from "../types";
+import type { TeachAudience, TopicBrief } from "../types";
 import { getTutorMode } from "../settings";
 import { queryClient } from "./queryClient";
 
@@ -43,7 +47,8 @@ export const useConcepts = (topicId: string | null) =>
 
 export function useStartTopic() {
   return useMutation({
-    mutationFn: (title: string) => startTopic(title),
+    mutationFn: ({ title, brief }: { title: string; brief?: TopicBrief | null }) =>
+      startTopic(title, brief),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["topics"] });
       queryClient.invalidateQueries({ queryKey: ["concepts"] });
@@ -203,10 +208,50 @@ export const useQuiz = (conceptId: string | null) =>
     initialData: null,
   });
 
-export function useGenerateQuiz(concept: ConceptRow, topicTitle: string) {
+export function useGenerateQuiz(
+  concept: ConceptRow,
+  topicTitle: string,
+  briefSummary?: string | null,
+) {
   return useMutation({
-    mutationFn: () => generateQuiz(concept, topicTitle),
+    mutationFn: () => generateQuiz(concept, topicTitle, briefSummary),
     onSuccess: (questions) => queryClient.setQueryData(["quiz", concept.id], questions),
+  });
+}
+
+/** How many days the Usage view's over-time window covers. */
+export const USAGE_WINDOW_DAYS = 30;
+const DAY_MS = 86_400_000;
+
+export interface UsageSummary {
+  totals: UsageTotals;
+  byModel: UsageByModel[];
+  daily: UsageDay[];
+}
+
+/** Aggregated AI spend for the Settings Usage view. The usage middleware
+ *  invalidates ["usage"] after each recorded call, so an open panel stays live. */
+export function useUsageSummary(enabled = true) {
+  return useQuery<UsageSummary>({
+    queryKey: ["usage"],
+    queryFn: async () => {
+      const since = Date.now() - USAGE_WINDOW_DAYS * DAY_MS;
+      const [totals, byModel, daily] = await Promise.all([
+        usageRepo.totals(),
+        usageRepo.byModel(),
+        usageRepo.daily(since),
+      ]);
+      return { totals, byModel, daily };
+    },
+    enabled,
+  });
+}
+
+/** Wipe the usage ledger (the Reset button in Settings). */
+export function useClearUsage() {
+  return useMutation({
+    mutationFn: () => usageRepo.clear(),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["usage"] }),
   });
 }
 

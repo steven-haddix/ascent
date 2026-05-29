@@ -33,14 +33,20 @@ fn http() -> &'static reqwest::Client {
 }
 
 /// Build a reqwest request with the BYO key injected from the keychain.
-/// Any client-supplied auth header is dropped (we own auth).
+///
+/// The key is read here (never in JS) from the route's `secret_name` keychain
+/// entry, and attached per the route's `scheme`: Anthropic-style `x-api-key`, or
+/// `Authorization: Bearer` for gateways (OpenRouter, etc.). Any client-supplied
+/// auth header is dropped — we own auth.
 fn build_request(
     method: &str,
     url: &str,
     headers: &HashMap<String, String>,
     body: Option<String>,
+    secret_name: &str,
+    scheme: &str,
 ) -> Result<reqwest::RequestBuilder, String> {
-    let key = crate::secrets::read_secret("anthropic-api-key")
+    let key = crate::secrets::read_secret(secret_name)
         .map_err(|e| e.to_string())?
         .ok_or_else(|| "No API key configured".to_string())?;
     let method = reqwest::Method::from_bytes(method.as_bytes()).map_err(|e| e.to_string())?;
@@ -51,7 +57,11 @@ fn build_request(
         }
         b = b.header(k, v);
     }
-    b = b.header("x-api-key", key);
+    b = match scheme {
+        "bearer" => b.header("authorization", format!("Bearer {key}")),
+        // Default to Anthropic-style; covers the only wired route today.
+        _ => b.header("x-api-key", key),
+    };
     if let Some(body) = body {
         b = b.body(body);
     }
@@ -81,10 +91,12 @@ pub async fn ai_request(
     method: String,
     headers: HashMap<String, String>,
     body: Option<String>,
+    secret: String,
+    scheme: String,
 ) -> Result<AiResponse, String> {
     let resp = tokio::time::timeout(
         Duration::from_secs(HEAD_TIMEOUT_SECS),
-        build_request(&method, &url, &headers, body)?.send(),
+        build_request(&method, &url, &headers, body, &secret, &scheme)?.send(),
     )
     .await
     .map_err(|_| "Timed out waiting for the provider to respond".to_string())?
@@ -116,10 +128,12 @@ pub async fn ai_stream(
     method: String,
     headers: HashMap<String, String>,
     body: Option<String>,
+    secret: String,
+    scheme: String,
 ) -> Result<StreamHead, String> {
     let resp = tokio::time::timeout(
         Duration::from_secs(HEAD_TIMEOUT_SECS),
-        build_request(&method, &url, &headers, body)?.send(),
+        build_request(&method, &url, &headers, body, &secret, &scheme)?.send(),
     )
     .await
     .map_err(|_| "Timed out waiting for the provider to respond".to_string())?

@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { secretStore } from "../core/secrets";
+import { getRoute } from "../core/ai/routes";
+import { getRouteId } from "../core/settings";
 
 /** First-run gate: capture the BYO API key into the OS keychain. No account. */
 export function FirstRun({ onDone }: { onDone: () => void }) {
@@ -12,7 +14,7 @@ export function FirstRun({ onDone }: { onDone: () => void }) {
     setSaving(true);
     setError(null);
     try {
-      await secretStore.setApiKey(value.trim());
+      await secretStore.setApiKey(getRoute(getRouteId()).secretName, value.trim());
       onDone();
     } catch (e) {
       setError(String(e));

@@ -2,9 +2,10 @@
 // stored in localStorage. Dependency-light: imports only the model catalog, so
 // the AI service can read getModelId() without an import cycle.
 import type { TutorMode } from "./generation/tutor";
-import { MODELS, MODEL_OPTIONS, type ModelId } from "./ai/models";
+import { getRoute, DEFAULT_ROUTE_ID } from "./ai/routes";
 
 const TUTOR_MODE_KEY = "ascent-tutor-mode";
+const ROUTE_KEY = "ascent-route";
 const MODEL_KEY = "ascent-model";
 const THEME_KEY = "ascent-theme";
 const PREVIEW_WIDTH_KEY = "ascent-preview-width";
@@ -31,13 +32,24 @@ export function setTutorMode(mode: TutorMode) {
   localStorage.setItem(TUTOR_MODE_KEY, mode);
 }
 
-/** The model used for all generation. Defaults to Sonnet; overridden in Settings. */
-export function getModelId(): ModelId {
-  const v = localStorage.getItem(MODEL_KEY);
-  return MODEL_OPTIONS.some((m) => m.id === v) ? (v as ModelId) : MODELS.default;
+/** The active provider/route (routes.ts). Defaults to Anthropic; set in Settings. */
+export function getRouteId(): string {
+  return localStorage.getItem(ROUTE_KEY) || DEFAULT_ROUTE_ID;
 }
 
-export function setModelId(id: ModelId) {
+export function setRouteId(id: string) {
+  localStorage.setItem(ROUTE_KEY, id);
+}
+
+/** The model used for all generation, validated against the active route's catalog
+ *  (a stale id from a different route falls back to that route's default). */
+export function getModelId(): string {
+  const route = getRoute(getRouteId());
+  const v = localStorage.getItem(MODEL_KEY);
+  return route.models.some((m) => m.id === v) ? (v as string) : route.defaultModelId;
+}
+
+export function setModelId(id: string) {
   localStorage.setItem(MODEL_KEY, id);
 }
 

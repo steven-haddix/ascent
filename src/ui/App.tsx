@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { runMigrations } from "../core/store/migrate";
 import { secretStore } from "../core/secrets";
+import { getRoute } from "../core/ai/routes";
+import { getRouteId } from "../core/settings";
 import { useTopics, useConcepts, useStartTopic, useForkConcept } from "../core/store/hooks";
+import type { TopicBrief } from "../core/types";
 import { FirstRun } from "./FirstRun";
 import { AppShell } from "./AppShell";
 
@@ -15,7 +18,7 @@ export function App() {
   useEffect(() => {
     (async () => {
       await runMigrations();
-      const hasKey = await secretStore.hasApiKey();
+      const hasKey = await secretStore.hasApiKey(getRoute(getRouteId()).secretName);
       setPhase(hasKey ? "ready" : "first-run");
     })().catch((err) => {
       console.error("[ascent] startup failed:", err);
@@ -29,8 +32,8 @@ export function App() {
   const fork = useForkConcept();
 
   // Open the most recent topic once, on first load — but never again. "New topic"
-  // clears activeTopicId to show the Trailhead; keying this effect off !activeTopicId
-  // would immediately re-open the existing topic, defeating the button.
+  // clears activeTopicId to show the new-topic intake; keying this effect off
+  // !activeTopicId would immediately re-open the existing topic, defeating the button.
   const didInitialOpen = useRef(false);
   useEffect(() => {
     if (phase !== "ready" || didInitialOpen.current || !topics.data) return;
@@ -48,13 +51,16 @@ export function App() {
     setSelectedConceptId(topic?.rootConceptId ?? null);
   };
 
-  const handleStartTopic = (title: string) => {
-    startTopic.mutate(title, {
-      onSuccess: ({ topicId, rootConceptId }) => {
-        setActiveTopicId(topicId);
-        setSelectedConceptId(rootConceptId);
+  const handleStartTopic = (title: string, brief?: TopicBrief) => {
+    startTopic.mutate(
+      { title, brief },
+      {
+        onSuccess: ({ topicId, rootConceptId }) => {
+          setActiveTopicId(topicId);
+          setSelectedConceptId(rootConceptId);
+        },
       },
-    });
+    );
   };
 
   const handleFork = (title: string, summary?: string) => {

@@ -1,13 +1,15 @@
 // Drizzle schema — the local SQLite source of truth. Subject-agnostic.
 import { sqliteTable, text, integer, real } from "drizzle-orm/sqlite-core";
 import { relations, sql } from "drizzle-orm";
-import type { Block, SuggestedBranch, LensId, ChatAttachment, RubricScores, TeachAnnotation, TeachGap } from "../types";
+import type { Block, SuggestedBranch, LensId, ChatAttachment, RubricScores, TeachAnnotation, TeachGap, TopicBrief } from "../types";
 
 /** A subject the learner is studying = one tree root. */
 export const topics = sqliteTable("topics", {
   id: text("id").primaryKey(),
   title: text("title").notNull(),
   rootConceptId: text("root_concept_id"),
+  /** the AI intake brief that refined this topic (null for skipped/legacy topics) */
+  brief: text("brief", { mode: "json" }).$type<TopicBrief>(),
   createdAt: integer("created_at").notNull(),
 });
 
@@ -85,6 +87,25 @@ export const teachAttempts = sqliteTable("teach_attempts", {
   gaps: text("gaps", { mode: "json" }).$type<TeachGap[]>().notNull().default(sql`'[]'`),
   /** how much this attempt moved the concept's mastery (computed in-app) */
   masteryDelta: real("mastery_delta").notNull().default(0),
+  createdAt: integer("created_at").notNull(),
+});
+
+/** One AI round-trip's token usage + a cost snapshot. Append-only; the Settings
+ *  Usage view aggregates over it. `provider` is the route id (e.g. "anthropic");
+ *  tokens are ground truth; `costUsd` is computed at write time from that route's
+ *  pricing (null when the rate is unknown), and `costSource` records how. */
+export const usageEvents = sqliteTable("usage_events", {
+  id: text("id").primaryKey(),
+  /** route/provider id the request went through (routes.ts) */
+  provider: text("provider").notNull(),
+  /** model id as sent to the provider (may be namespaced through a gateway) */
+  model: text("model").notNull(),
+  inputTokens: integer("input_tokens").notNull().default(0),
+  outputTokens: integer("output_tokens").notNull().default(0),
+  cachedInputTokens: integer("cached_input_tokens").notNull().default(0),
+  /** USD cost snapshot at write time; null when the route can't price this model */
+  costUsd: real("cost_usd"),
+  costSource: text("cost_source", { enum: ["reported", "rates", "unknown"] }).notNull(),
   createdAt: integer("created_at").notNull(),
 });
 
