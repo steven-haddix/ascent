@@ -21,13 +21,18 @@ const QuizSchema = z.object({
 
 export type QuizQuestion = z.infer<typeof QuizSchema>["questions"][number];
 
-export async function generateQuiz(concept: ConceptRow, topicTitle: string): Promise<QuizQuestion[]> {
+export async function generateQuiz(
+  concept: ConceptRow,
+  topicTitle: string,
+  briefSummary?: string | null,
+): Promise<QuizQuestion[]> {
+  const brief = briefSummary ? `\nKeep it aligned with the learner brief: ${briefSummary}` : "";
   const { output } = await generateText({
     model: getModel(),
     output: Output.object({ schema: QuizSchema }),
     prompt: `Write a 2-4 question multiple-choice quick-check on "${concept.title}" (within "${topicTitle}").
 Each question has 3-4 choices; set answerIndex to the correct one (0-based); add a one-line
-explanation. Test understanding and intuition, not trivia. No markdown.`,
+explanation. Test understanding and intuition, not trivia.${brief} No markdown.`,
   });
   return output.questions;
 }

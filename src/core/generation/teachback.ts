@@ -73,6 +73,8 @@ export interface TeachContext {
   topicTitle: string;
   path: string[];
   summary?: string | null;
+  /** the topic's intake brief summary — keeps grading aligned with the learner's goal */
+  briefSummary?: string | null;
 }
 
 export async function gradeTeachBack(
@@ -83,11 +85,12 @@ export async function gradeTeachBack(
 ): Promise<TeachResult> {
   const who = AUDIENCE_LABEL[audience];
   const focus = ctx.summary ? `\nWhat this concept is about: ${ctx.summary}` : "";
+  const brief = ctx.briefSummary ? `\nLearner brief: ${ctx.briefSummary}` : "";
   const { output } = await generateText({
     model: getModel(),
     output: Output.object({ schema: GradeSchema }),
     prompt: `You are a rigorous but encouraging examiner running a Feynman "teach-back".
-A learner is studying "${concept.title}" within "${ctx.topicTitle}" (${ctx.path.join(" > ")}).${focus}
+A learner is studying "${concept.title}" within "${ctx.topicTitle}" (${ctx.path.join(" > ")}).${focus}${brief}
 They were asked to explain it to ${who}. Here is their explanation:
 
 """

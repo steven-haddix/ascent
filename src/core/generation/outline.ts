@@ -4,6 +4,8 @@ import { generateText, Output } from "ai";
 import { z } from "zod";
 import { getModel } from "../ai/service";
 import { topicRepo, conceptRepo } from "../store/repositories";
+import { formatHistory } from "./intake";
+import type { TopicBrief } from "../types";
 
 const OutlineSchema = z.object({
   concepts: z
@@ -22,13 +24,21 @@ const OutlineSchema = z.object({
 
 export type OutlineConcept = z.infer<typeof OutlineSchema>["concepts"][number];
 
-export async function outlineTopic(title: string): Promise<OutlineConcept[]> {
+export async function outlineTopic(
+  title: string,
+  brief?: TopicBrief | null,
+): Promise<OutlineConcept[]> {
+  const briefBlock = brief
+    ? `\n\nLearner brief (tailor the tree's depth, scope, and emphasis to this):
+${brief.summary}
+${formatHistory(brief.answers)}`
+    : "";
   const { output } = await generateText({
     model: getModel(),
     output: Output.object({ schema: OutlineSchema }),
     prompt: `You are mapping a subject into a learning tree for a curious learner.
 
-Topic: "${title}"
+Topic: "${title}"${briefBlock}
 
 Produce 4-7 top-level concepts forming a coherent path from foundations to depth.
 For each, optionally include 2-4 sub-concepts that break it down. Keep titles short
@@ -41,13 +51,14 @@ For each, optionally include 2-4 sub-concepts that break it down. Keep titles sh
  *  Returns the new topic id and the root concept to open first. */
 export async function startTopic(
   title: string,
+  brief?: TopicBrief | null,
 ): Promise<{ topicId: string; rootConceptId: string }> {
-  const outline = await outlineTopic(title);
+  const outline = await outlineTopic(title, brief);
   const now = Date.now();
   const topicId = crypto.randomUUID();
   const rootId = crypto.randomUUID();
 
-  await topicRepo.create({ id: topicId, title, rootConceptId: rootId, createdAt: now });
+  await topicRepo.create({ id: topicId, title, rootConceptId: rootId, brief: brief ?? null, createdAt: now });
   await conceptRepo.create({
     id: rootId,
     topicId,

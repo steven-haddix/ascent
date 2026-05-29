@@ -24,6 +24,8 @@ export interface ChatContext {
   topicTitle: string;
   path: string[];
   summary?: string | null;
+  /** the topic's intake brief summary — keeps tutoring aligned with the learner's goal */
+  briefSummary?: string | null;
 }
 
 export interface ChatTurnInput {
@@ -45,7 +47,8 @@ export async function chat(
 ): Promise<string> {
   const system =
     `${TUTOR_MODES[mode]} The learner is studying "${concept.title}" within "${ctx.topicTitle}" ` +
-    `(${ctx.path.join(" > ")}).${ctx.summary ? ` This concept covers: ${ctx.summary}.` : ""} ` +
+    `(${ctx.path.join(" > ")}).${ctx.summary ? ` This concept covers: ${ctx.summary}.` : ""}` +
+    `${ctx.briefSummary ? ` Learner brief: ${ctx.briefSummary}.` : ""} ` +
     `Ground answers in this concept. Keep text replies to 2-4 short sentences unless asked ` +
     `for more. Be concrete. No markdown.\n\n` +
     `If the learner asks for code, an example, or a runnable demonstration, you may call ` +

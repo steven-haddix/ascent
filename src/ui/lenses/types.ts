@@ -4,7 +4,7 @@ import type { LensId } from "../../core/types";
 
 export interface LensProps {
   concept: ConceptRow;
-  ctx: { topicTitle: string; path: string[] };
+  ctx: { topicTitle: string; path: string[]; briefSummary?: string | null };
 }
 
 /** A right-pane capability module. Lessons declare which lenses apply; the

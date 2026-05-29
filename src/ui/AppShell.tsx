@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import type { ConceptRow, TopicRow } from "../core/store/repositories";
+import type { TopicBrief } from "../core/types";
 import { ConceptTree } from "./ConceptTree";
-import { Trailhead } from "./Trailhead";
+import { TopicIntake } from "./TopicIntake";
 import { LessonPane } from "./LessonPane";
 import { ChatDrawer } from "./ChatDrawer";
 import { PreviewPane } from "./PreviewPane";
@@ -196,7 +197,7 @@ interface AppShellProps {
   concepts: ConceptRow[];
   selectedConceptId: string | null;
   onSelectConcept: (id: string) => void;
-  onStartTopic: (title: string) => void;
+  onStartTopic: (title: string, brief?: TopicBrief) => void;
   starting: boolean;
   startError?: string | null;
   onNewTopic: () => void;
@@ -220,6 +221,9 @@ export function AppShell(props: AppShellProps) {
 
   const selected = concepts.find((c) => c.id === selectedConceptId) ?? null;
   const topicTitle = concepts.find((c) => !c.parentId)?.title ?? "";
+  // The active topic's intake brief threads into every generator (lesson/chat/quiz/teach).
+  const activeTopic = topics.find((t) => t.id === activeTopicId) ?? null;
+  const briefSummary = activeTopic?.brief?.summary ?? null;
 
   // The chat drawer overlays the lesson; track its height so the lesson reserves
   // matching scroll room beneath its content (you can always scroll past it).
@@ -340,7 +344,12 @@ export function AppShell(props: AppShellProps) {
         />
         <main className="relative min-h-0 min-w-0 bg-bg">
           {!activeTopicId ? (
-            <Trailhead onStart={onStartTopic} busy={starting} error={startError} />
+            <TopicIntake
+              onGenerate={onStartTopic}
+              onCancel={onNewTopic}
+              busy={starting}
+              error={startError}
+            />
           ) : selected ? (
             <>
               <div className="h-full overflow-y-auto">
@@ -350,6 +359,7 @@ export function AppShell(props: AppShellProps) {
                   concepts={concepts}
                   path={pathTo(concepts, selected.id)}
                   topicTitle={topicTitle}
+                  briefSummary={briefSummary}
                   onFork={onFork}
                   bottomInset={chatHeight + 24}
                 />
@@ -357,7 +367,7 @@ export function AppShell(props: AppShellProps) {
               <ChatDrawer
                 key={selected.id}
                 concept={selected}
-                ctx={{ topicTitle, path: pathTo(concepts, selected.id), summary: selected.summary }}
+                ctx={{ topicTitle, path: pathTo(concepts, selected.id), summary: selected.summary, briefSummary }}
                 onHeightChange={setChatHeight}
               />
             </>
@@ -375,7 +385,7 @@ export function AppShell(props: AppShellProps) {
             <PreviewPane
               key={selected.id}
               concept={selected}
-              ctx={{ topicTitle, path: pathTo(concepts, selected.id) }}
+              ctx={{ topicTitle, path: pathTo(concepts, selected.id), briefSummary }}
             />
           ) : (
             <EmptyPane

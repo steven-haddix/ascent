@@ -228,6 +228,7 @@ export function LessonPane({
   concepts,
   path,
   topicTitle,
+  briefSummary,
   onFork,
   bottomInset,
 }: {
@@ -235,6 +236,8 @@ export function LessonPane({
   concepts: ConceptRow[];
   path: string[];
   topicTitle: string;
+  /** the topic's intake brief summary — tailors lesson depth/emphasis */
+  briefSummary?: string | null;
   onFork: (title: string, summary?: string) => void;
   /** scroll room to reserve below the content so the chat drawer (which overlays
    *  the bottom of the lesson) never traps the last content out of reach. */
@@ -251,6 +254,7 @@ export function LessonPane({
     summary: concept.summary,
     siblings,
     children,
+    briefSummary,
   });
   const [pop, setPop] = useState<{ term: Term; rect: DOMRect } | null>(null);
 

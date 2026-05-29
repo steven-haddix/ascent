@@ -11,7 +11,7 @@ export function PreviewPane({
   ctx,
 }: {
   concept: ConceptRow;
-  ctx: { topicTitle: string; path: string[] };
+  ctx: { topicTitle: string; path: string[]; briefSummary?: string | null };
 }) {
   // Shares the ["lesson", id] cache with the center pane — no extra fetch.
   const lesson = useQuery({

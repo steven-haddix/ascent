@@ -4,7 +4,7 @@ import type { LensProps } from "./types";
 
 export function QuizLens({ concept, ctx }: LensProps) {
   const { data: quiz } = useQuiz(concept.id);
-  const gen = useGenerateQuiz(concept, ctx.topicTitle);
+  const gen = useGenerateQuiz(concept, ctx.topicTitle, ctx.briefSummary);
   const [idx, setIdx] = useState(0);
   const [picked, setPicked] = useState<number | null>(null);
 

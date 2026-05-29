@@ -75,6 +75,8 @@ export interface LessonContext {
   summary?: string | null;
   siblings: string[];
   children: string[];
+  /** the topic's intake brief summary — tailors depth/emphasis (absent = skipped intake) */
+  briefSummary?: string | null;
 }
 
 /** A lesson while it's still streaming (fields fill in progressively). */
@@ -99,6 +101,9 @@ export async function generateLesson(
   const children = ctx.children.length
     ? `\nThis concept has sub-concepts taught in their own lessons: ${ctx.children.join(", ")}. Keep THIS lesson an orienting overview that motivates and connects them — don't fully dive into each.`
     : "";
+  const brief = ctx.briefSummary
+    ? `\nLearner brief (tailor depth, emphasis, and examples to this): ${ctx.briefSummary}`
+    : "";
 
   const result = streamText({
     model: getModel(),
@@ -117,7 +122,7 @@ understanding, not coverage. Do NOT write like an encyclopedia.
 
 Topic: "${ctx.topicTitle}"
 Path: ${ctx.path.join(" > ")}
-Concept to teach: "${concept.title}"${focus}${siblings}${children}
+Concept to teach: "${concept.title}"${focus}${siblings}${children}${brief}
 
 HOW TO EXPLAIN (this matters more than how much you cover):
 - Start from intuition. Before any formalism, give the learner a way to picture or feel

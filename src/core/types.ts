@@ -97,3 +97,31 @@ export interface TeachGap {
   title: string;
   reason: string;
 }
+
+// --- Topic intake (the questionnaire that refines a topic before generation) ---
+
+/** A single AI-authored multiple-choice question in the topic intake. */
+export interface IntakeQuestion {
+  /** the question text */
+  prompt: string;
+  /** 3-5 distinct choices */
+  options: string[];
+}
+
+/** One answered intake question — kept as grounding for generation. At least one
+ *  of `selected` / `other` is set. */
+export interface IntakeAnswer {
+  prompt: string;
+  /** the chosen option, if any */
+  selected?: string;
+  /** free-text the learner added, if any (supplements or replaces a selection) */
+  other?: string;
+}
+
+/** The persisted intake result — threaded into all generation for a topic. */
+export interface TopicBrief {
+  /** the AI's 2-4 sentence synthesized understanding of what to build */
+  summary: string;
+  /** the Q&A transcript */
+  answers: IntakeAnswer[];
+}
