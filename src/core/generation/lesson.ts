@@ -7,8 +7,9 @@ import { z } from "zod";
 import { getModel } from "../ai/service";
 import { getModelId } from "../settings";
 import { dlog, since } from "../debug";
-import { lessonRepo, conceptRepo, type ConceptRow } from "../store/repositories";
-import type { Block, SuggestedBranch, LensId } from "../types";
+import { lessonRepo, conceptRepo, linkRepo, type ConceptRow } from "../store/repositories";
+import { normalizeTitle } from "../store/match";
+import type { Block, SuggestedFork, SuggestedLesson, LensId } from "../types";
 
 const LessonSchema = z.object({
   subtitle: z.string().describe("one-line subtitle framing the lesson"),
@@ -64,10 +65,23 @@ const LessonSchema = z.object({
     .describe(
       "8-14 blocks: short paragraphs (2-4 sentences, one idea each), section headers that chunk the lesson into clear beats, at most one callout",
     ),
-  suggestedBranches: z
+  suggestedLessons: z
+    .array(z.object({ handle: z.string(), reason: z.string() }))
+    .describe("next concepts that ALREADY EXIST in the tree — reference each by its handle (e.g. 'c2'); these become links, never recreate them"),
+  suggestedForks: z
     .array(z.object({ title: z.string(), reason: z.string() }))
-    .describe("2-4 concepts worth exploring next"),
+    .describe("genuinely NEW sub-concepts to create, absent from the existing list — these fork a new lesson under this one"),
 });
+
+/** One existing concept in the topic, offered to the generator so it can link to
+ *  it instead of duplicating it. `handle` is a short stable id the model cites in
+ *  `suggestedLessons`; `conceptId` stays app-side for resolution (never sent). */
+export interface ExistingConcept {
+  handle: string;
+  conceptId: string;
+  title: string;
+  summary: string | null;
+}
 
 export interface LessonContext {
   topicTitle: string;
@@ -75,6 +89,8 @@ export interface LessonContext {
   summary?: string | null;
   siblings: string[];
   children: string[];
+  /** every other concept in this topic — lets the model link rather than re-fork */
+  existingConcepts: ExistingConcept[];
   /** the topic's intake brief summary — tailors depth/emphasis (absent = skipped intake) */
   briefSummary?: string | null;
 }
@@ -83,7 +99,8 @@ export interface LessonContext {
 export interface PartialLesson {
   subtitle?: string;
   blocks?: Block[];
-  suggestedBranches?: SuggestedBranch[];
+  suggestedLessons?: { handle?: string; reason?: string }[];
+  suggestedForks?: SuggestedFork[];
 }
 
 export async function generateLesson(
@@ -104,6 +121,11 @@ export async function generateLesson(
   const brief = ctx.briefSummary
     ? `\nLearner brief (tailor depth, emphasis, and examples to this): ${ctx.briefSummary}`
     : "";
+  const existing = ctx.existingConcepts.length
+    ? `\n\nConcepts ALREADY in the learner's tree for this topic (do NOT recreate these — link to them by handle instead):\n${ctx.existingConcepts
+        .map((c) => `[${c.handle}] ${c.title}${c.summary ? ` — ${c.summary}` : ""}`)
+        .join("\n")}`
+    : "";
 
   const result = streamText({
     model: getModel(),
@@ -122,7 +144,7 @@ understanding, not coverage. Do NOT write like an encyclopedia.
 
 Topic: "${ctx.topicTitle}"
 Path: ${ctx.path.join(" > ")}
-Concept to teach: "${concept.title}"${focus}${siblings}${children}${brief}
+Concept to teach: "${concept.title}"${focus}${siblings}${children}${brief}${existing}
 
 HOW TO EXPLAIN (this matters more than how much you cover):
 - Start from intuition. Before any formalism, give the learner a way to picture or feel
@@ -182,7 +204,18 @@ FORMAT:
   (\`mindmap\`), or events (\`timeline\`). Keep it focused — a handful of nodes. Use VALID Mermaid
   syntax only. Optional \`title\` caption; refer to it in the prose.
 - Every block must have content: paragraph and callout need non-empty text, section needs a label, code needs non-empty text.
-- Finish by suggesting 2-4 next concepts. No markdown.`,
+
+FINISH by recommending what to explore next, split into two lists — this is how the learner grows
+the tree without duplicating it, so choose carefully:
+- suggestedLessons: for each next idea that is ALREADY covered by a concept in the existing list
+  above, reference that concept by its handle (e.g. "c2"). These render as LINKS to lessons the
+  learner already has — never recreate them as new.
+- suggestedForks: ONLY for a sub-concept genuinely ABSENT from the existing list — a true new
+  branch worth its own lesson, nested under this one. Give a short title (2-5 words) and a one-line
+  reason.
+- When unsure whether an idea already exists above, prefer a LINK (suggestedLessons) over a new
+  fork. A smaller, well-connected tree beats a sprawl of near-duplicate lessons.
+No markdown.`,
   });
 
   // Capture output now and pre-attach a catch: on abort we throw out of the
@@ -212,12 +245,30 @@ FORMAT:
   const lenses: LensId[] = hasCode
     ? ["notes", "quiz", "chat", "teach", "code"]
     : ["notes", "quiz", "chat", "teach"];
+  // Resolve the model's existing-concept links: it cites handles we assigned in
+  // the prompt → conceptId. Fall back to a normalized-title match if it echoed a
+  // title instead of a handle. Drop anything unresolved, self-referential, or a
+  // duplicate target.
+  const byHandle = new Map(ctx.existingConcepts.map((c) => [c.handle, c.conceptId]));
+  const byTitle = new Map(ctx.existingConcepts.map((c) => [normalizeTitle(c.title), c.conceptId]));
+  const suggestedLessons: SuggestedLesson[] = [];
+  const linkedIds = new Set<string>();
+  for (const s of output.suggestedLessons ?? []) {
+    const ref = (s.handle ?? "").trim();
+    if (!ref) continue;
+    const targetId = byHandle.get(ref) ?? byTitle.get(normalizeTitle(ref));
+    if (!targetId || targetId === concept.id || linkedIds.has(targetId)) continue;
+    linkedIds.add(targetId);
+    suggestedLessons.push({ conceptId: targetId, reason: s.reason ?? "" });
+  }
+
   const row = {
     conceptId: concept.id,
     title: concept.title,
     subtitle: output.subtitle,
     blocks,
-    suggestedBranches: output.suggestedBranches as SuggestedBranch[],
+    suggestedForks: output.suggestedForks as SuggestedFork[],
+    suggestedLessons,
     lenses,
     model: getModelId(),
     generatedAt: now,
@@ -227,5 +278,19 @@ FORMAT:
     state: "ready",
     status: concept.status === "queued" ? "visited" : concept.status,
   });
+  // Eager, deduped cross-link edges for each resolved link (the unique (source,
+  // target) index makes a repeat insert a no-op). Feeds the graph view + backlinks.
+  await Promise.all(
+    suggestedLessons.map((l) =>
+      linkRepo.create({
+        id: crypto.randomUUID(),
+        topicId: concept.topicId,
+        sourceConceptId: concept.id,
+        targetConceptId: l.conceptId,
+        reason: l.reason || null,
+        createdAt: now,
+      }),
+    ),
+  );
   return row;
 }

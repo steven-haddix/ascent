@@ -1,12 +1,14 @@
-import { Fragment, useState } from "react";
+import { useState } from "react";
 import type { ConceptRow } from "../core/store/repositories";
-import type { Block, SuggestedBranch, Term } from "../core/types";
+import type { Block, SuggestedFork, SuggestedLesson, Term } from "../core/types";
 import { useConceptLesson } from "../core/store/hooks";
+import { findExistingConcept } from "../core/store/match";
 import { TermPopover } from "./TermPopover";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { CodeBlock } from "./code/CodeBlock";
 import { TableBlock } from "./blocks/TableBlock";
-import { MathBlock, InlineMath } from "./blocks/MathBlock";
+import { MathBlock } from "./blocks/MathBlock";
+import { RichText } from "./blocks/RichText";
 import { ChartBlock } from "./blocks/ChartBlock";
 import { DiagramBlock } from "./blocks/DiagramBlock";
 
@@ -54,52 +56,6 @@ function renderBlock(block: Block, key: number, onTerm: (t: Term, r: DOMRect) =>
   }
 }
 
-const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-
-const MATH_INLINE_RE = /\$(\S(?:[^$\n]*?\S)?)\$/g;
-
-/** Split paragraph text into inline-math ($...) vs plain-text segments. The pattern
- *  requires a non-space just inside the delimiters, so prose like "$5 and $10" is
- *  not mistaken for math. */
-function splitMathSegments(text: string): { math: boolean; value: string }[] {
-  const out: { math: boolean; value: string }[] = [];
-  let last = 0;
-  for (const m of text.matchAll(MATH_INLINE_RE)) {
-    const idx = m.index ?? 0;
-    if (idx > last) out.push({ math: false, value: text.slice(last, idx) });
-    out.push({ math: true, value: m[1] });
-    last = idx + m[0].length;
-  }
-  if (last < text.length) out.push({ math: false, value: text.slice(last) });
-  return out.length ? out : [{ math: false, value: text }];
-}
-
-/** Render a plain-text run, wrapping any forkable terms it contains. */
-function renderTextWithTerms(
-  text: string,
-  terms: Term[],
-  onTerm: (t: Term, r: DOMRect) => void,
-  keyPrefix: string,
-) {
-  if (terms.length === 0) return text;
-  const sorted = [...terms].sort((a, b) => b.term.length - a.term.length);
-  const re = new RegExp(`(${sorted.map((t) => escapeRegex(t.term)).join("|")})`, "gi");
-  return text.split(re).map((part, i) => {
-    const term = terms.find((t) => t.term.toLowerCase() === part.toLowerCase());
-    return term ? (
-      <span
-        key={`${keyPrefix}-${i}`}
-        className="cursor-pointer rounded-[3px] border-b border-dotted border-accent bg-accent/10 px-0.5 hover:bg-accent/20"
-        onClick={(e) => onTerm(term, (e.currentTarget as HTMLElement).getBoundingClientRect())}
-      >
-        {part}
-      </span>
-    ) : (
-      <Fragment key={`${keyPrefix}-${i}`}>{part}</Fragment>
-    );
-  });
-}
-
 function Paragraph({ block, onTerm }: { block: Block; onTerm: (term: Term, rect: DOMRect) => void }) {
   const text = block.text ?? "";
   // Streamed partials can carry half-built terms (a `gloss` before its `term`
@@ -107,16 +63,9 @@ function Paragraph({ block, onTerm }: { block: Block; onTerm: (term: Term, rect:
   const terms = (block.terms ?? []).filter(
     (t): t is Term => typeof t?.term === "string" && t.term.length > 0,
   );
-  const segments = splitMathSegments(text);
   return (
     <p className="mb-[18px]">
-      {segments.map((seg, i) =>
-        seg.math ? (
-          <InlineMath key={`m-${i}`} tex={seg.value} />
-        ) : (
-          <Fragment key={`t-${i}`}>{renderTextWithTerms(seg.value, terms, onTerm, `t${i}`)}</Fragment>
-        ),
-      )}
+      <RichText text={text} terms={terms} onTerm={onTerm} />
     </p>
   );
 }
@@ -143,36 +92,91 @@ function SectionHead({ block }: { block: Block }) {
   );
 }
 
-function SuggestedBranches({
-  branches,
-  onFork,
+/** A row at the lesson foot: a Link to an existing concept, or a Fork to a new one.
+ *  Same shape, different action label + handler. */
+function SuggestionRow({
+  title,
+  reason,
+  action,
+  onClick,
 }: {
-  branches: SuggestedBranch[];
-  onFork: (title: string, summary?: string) => void;
+  title: string;
+  reason: string;
+  action: string;
+  onClick: () => void;
 }) {
-  if (!branches.length) return null;
+  return (
+    <button
+      onClick={onClick}
+      className="grid grid-cols-[1fr_auto] items-center gap-3 rounded-md border border-rule bg-surface px-3 py-2.5 text-left hover:border-accent hover:bg-surface-2"
+    >
+      <span>
+        <span className="block text-[13px] font-medium text-ink">{title}</span>
+        {reason && <span className="mt-0.5 block text-[12px] text-ink-3">{reason}</span>}
+      </span>
+      <span className="shrink-0 font-mono text-[11.5px] text-ink-3">{action}</span>
+    </button>
+  );
+}
+
+function SuggestionSection({ label, hint, children }: { label: string; hint: string; children: React.ReactNode }) {
   return (
     <div className="mt-9 font-sans">
       <div className="mb-3 flex items-baseline justify-between border-b border-rule pb-2">
-        <span className="text-[11.5px] font-semibold uppercase tracking-wide text-ink">Branches to explore</span>
-        <span className="text-[11.5px] text-ink-3">Click to fork into your tree</span>
+        <span className="text-[11.5px] font-semibold uppercase tracking-wide text-ink">{label}</span>
+        <span className="text-[11.5px] text-ink-3">{hint}</span>
       </div>
-      <div className="flex flex-col gap-1.5">
-        {branches.map((b, i) => (
-          <button
-            key={i}
-            onClick={() => onFork(b.title, b.reason)}
-            className="grid grid-cols-[1fr_auto] items-center gap-3 rounded-md border border-rule bg-surface px-3 py-2.5 text-left hover:border-accent hover:bg-surface-2"
-          >
-            <span>
-              <span className="block text-[13px] font-medium text-ink">{b.title}</span>
-              <span className="mt-0.5 block text-[12px] text-ink-3">{b.reason}</span>
-            </span>
-            <span className="font-mono text-[11.5px] text-ink-3">Fork →</span>
-          </button>
-        ))}
-      </div>
+      <div className="flex flex-col gap-1.5">{children}</div>
     </div>
+  );
+}
+
+/** A link to a concept that already exists in the tree. `viaFork` rows are forks
+ *  that turned out to match an existing concept at render time — they route through
+ *  `onFork` so the dedup guard (one site) navigates AND records the edge; plain
+ *  links navigate directly (their edge was created eagerly at generation). */
+export interface RelatedItem {
+  conceptId: string;
+  title: string;
+  reason: string;
+  viaFork: boolean;
+}
+
+function NextSteps({
+  related,
+  forks,
+  onFork,
+  onNavigate,
+}: {
+  related: RelatedItem[];
+  forks: SuggestedFork[];
+  onFork: (title: string, summary?: string) => void;
+  onNavigate: (conceptId: string) => void;
+}) {
+  if (!related.length && !forks.length) return null;
+  return (
+    <>
+      {related.length > 0 && (
+        <SuggestionSection label="Related in your tree" hint="Already here — go revisit">
+          {related.map((r) => (
+            <SuggestionRow
+              key={r.conceptId}
+              title={r.title}
+              reason={r.reason}
+              action="Go to →"
+              onClick={() => (r.viaFork ? onFork(r.title, r.reason) : onNavigate(r.conceptId))}
+            />
+          ))}
+        </SuggestionSection>
+      )}
+      {forks.length > 0 && (
+        <SuggestionSection label="Branches to explore" hint="New — fork into your tree">
+          {forks.map((f, i) => (
+            <SuggestionRow key={i} title={f.title} reason={f.reason} action="Fork →" onClick={() => onFork(f.title, f.reason)} />
+          ))}
+        </SuggestionSection>
+      )}
+    </>
   );
 }
 
@@ -230,6 +234,7 @@ export function LessonPane({
   topicTitle,
   briefSummary,
   onFork,
+  onNavigate,
   bottomInset,
 }: {
   concept: ConceptRow;
@@ -239,6 +244,8 @@ export function LessonPane({
   /** the topic's intake brief summary — tailors lesson depth/emphasis */
   briefSummary?: string | null;
   onFork: (title: string, summary?: string) => void;
+  /** navigate to an existing concept (a Link), without creating a new node */
+  onNavigate: (conceptId: string) => void;
   /** scroll room to reserve below the content so the chat drawer (which overlays
    *  the bottom of the lesson) never traps the last content out of reach. */
   bottomInset?: number;
@@ -247,6 +254,11 @@ export function LessonPane({
     .filter((c) => c.parentId === concept.parentId && c.id !== concept.id)
     .map((c) => c.title);
   const children = concepts.filter((c) => c.parentId === concept.id).map((c) => c.title);
+  // Every other concept in the topic, with a short stable handle, so the generator
+  // can link to an existing lesson instead of re-forking it.
+  const existingConcepts = concepts
+    .filter((c) => c.id !== concept.id)
+    .map((c, i) => ({ handle: `c${i + 1}`, conceptId: c.id, title: c.title, summary: c.summary }));
 
   const { lesson, partial, generating, error, retry, stop } = useConceptLesson(concept, {
     topicTitle,
@@ -254,6 +266,7 @@ export function LessonPane({
     summary: concept.summary,
     siblings,
     children,
+    existingConcepts,
     briefSummary,
   });
   const [pop, setPop] = useState<{ term: Term; rect: DOMRect } | null>(null);
@@ -263,7 +276,32 @@ export function LessonPane({
   const display = generating ? partial : (lesson ?? partial);
   const subtitle = display?.subtitle ?? null;
   const blocks = ((display?.blocks ?? []) as Block[]).filter(isRenderableBlock);
-  const branches = (lesson?.suggestedBranches as SuggestedBranch[] | undefined) ?? [];
+
+  // Split the lesson's closing recommendations into Links (existing concepts) and
+  // Forks (net-new), re-resolved against the LIVE tree: a stored link whose target
+  // was deleted is dropped, and a fork whose title now matches an existing concept
+  // is promoted to a Link — so suggestions stay correct as the tree grows.
+  const conceptById = new Map(concepts.map((c) => [c.id, c]));
+  const related: RelatedItem[] = [];
+  const relatedIds = new Set<string>();
+  for (const s of (lesson?.suggestedLessons as SuggestedLesson[] | undefined) ?? []) {
+    const row = conceptById.get(s.conceptId);
+    if (!row || relatedIds.has(row.id)) continue;
+    relatedIds.add(row.id);
+    related.push({ conceptId: row.id, title: row.title, reason: s.reason, viaFork: false });
+  }
+  const forks: SuggestedFork[] = [];
+  for (const f of (lesson?.suggestedForks as SuggestedFork[] | undefined) ?? []) {
+    const match = findExistingConcept(f.title, concepts, concept.id);
+    if (match) {
+      if (!relatedIds.has(match.id)) {
+        relatedIds.add(match.id);
+        related.push({ conceptId: match.id, title: match.title, reason: f.reason, viaFork: true });
+      }
+    } else {
+      forks.push(f);
+    }
+  }
 
   return (
     <div className="mx-auto max-w-[720px] px-12 pt-10" style={{ paddingBottom: bottomInset ?? 96 }}>
@@ -327,7 +365,9 @@ export function LessonPane({
                 </button>
               </div>
             )}
-            {!generating && <SuggestedBranches branches={branches} onFork={onFork} />}
+            {!generating && (
+              <NextSteps related={related} forks={forks} onFork={onFork} onNavigate={onNavigate} />
+            )}
           </div>
         </ErrorBoundary>
       )}

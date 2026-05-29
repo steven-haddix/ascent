@@ -6,6 +6,7 @@ import {
   topicRepo,
   conceptRepo,
   lessonRepo,
+  linkRepo,
   chatRepo,
   noteRepo,
   teachRepo,
@@ -15,6 +16,7 @@ import {
   type UsageByModel,
   type UsageDay,
 } from "./repositories";
+import { findExistingConcept } from "./match";
 import { startTopic } from "../generation/outline";
 import type { LessonContext } from "../generation/lesson";
 import {
@@ -42,6 +44,16 @@ export const useConcepts = (topicId: string | null) =>
   useQuery({
     queryKey: ["concepts", topicId],
     queryFn: () => conceptRepo.byTopic(topicId as string),
+    enabled: !!topicId,
+  });
+
+/** Cross-link edges for a topic — the graph layer beyond the parent/child tree.
+ *  Eager edge creation invalidates ["links"], so a consumer (graph view, backlinks)
+ *  stays live. No reader ships in this slice; it's here for ⌘G / backlinks. */
+export const useConceptLinks = (topicId: string | null) =>
+  useQuery({
+    queryKey: ["links", topicId],
+    queryFn: () => linkRepo.byTopic(topicId as string),
     enabled: !!topicId,
   });
 
@@ -297,31 +309,48 @@ export function useTeachBack(concept: ConceptRow, ctx: TeachContext) {
           newMastery >= 0.8 ? "complete" : concept.status === "queued" ? "visited" : concept.status,
       });
 
-      // Each gap becomes a remedial child concept; it generates a lesson on first
-      // visit. Await all inserts so the refetch below sees the new branches.
-      await Promise.all(
-        grade.gaps.map((gap, i) =>
-          conceptRepo.create({
+      // Each gap becomes a remedial child concept — UNLESS that concept already
+      // exists in the tree, in which case we link to it instead of duplicating it
+      // (the same dedup guard the lesson suggestions use). `pool` grows as we add
+      // children so two identically-named gaps in one batch don't double-fork.
+      const pool: ConceptRow[] = [...(await conceptRepo.byTopic(concept.topicId))];
+      let order = now;
+      for (const gap of grade.gaps) {
+        const match = findExistingConcept(gap.title, pool, concept.id);
+        if (match) {
+          await linkRepo.create({
             id: crypto.randomUUID(),
             topicId: concept.topicId,
-            parentId: concept.id,
-            title: gap.title,
-            summary: gap.reason,
-            status: "queued",
-            state: "outline",
-            order: now + i,
-            mastery: 0,
-            remedial: true,
+            sourceConceptId: concept.id,
+            targetConceptId: match.id,
+            reason: gap.reason || null,
             createdAt: now,
-          }),
-        ),
-      );
+          });
+          continue;
+        }
+        const child: ConceptRow = {
+          id: crypto.randomUUID(),
+          topicId: concept.topicId,
+          parentId: concept.id,
+          title: gap.title,
+          summary: gap.reason,
+          status: "queued",
+          state: "outline",
+          order: order++,
+          mastery: 0,
+          remedial: true,
+          createdAt: now,
+        };
+        await conceptRepo.create(child);
+        pool.push(child);
+      }
 
       return { ...grade, masteryDelta };
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["teach", concept.id] });
       queryClient.invalidateQueries({ queryKey: ["concepts"] });
+      queryClient.invalidateQueries({ queryKey: ["links"] });
     },
   });
 }

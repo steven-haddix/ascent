@@ -361,6 +361,7 @@ export function AppShell(props: AppShellProps) {
                   topicTitle={topicTitle}
                   briefSummary={briefSummary}
                   onFork={onFork}
+                  onNavigate={onSelectConcept}
                   bottomInset={chatHeight + 24}
                 />
               </div>

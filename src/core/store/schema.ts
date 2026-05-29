@@ -1,7 +1,7 @@
 // Drizzle schema — the local SQLite source of truth. Subject-agnostic.
-import { sqliteTable, text, integer, real } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, real, uniqueIndex } from "drizzle-orm/sqlite-core";
 import { relations, sql } from "drizzle-orm";
-import type { Block, SuggestedBranch, LensId, ChatAttachment, RubricScores, TeachAnnotation, TeachGap, TopicBrief } from "../types";
+import type { Block, SuggestedFork, SuggestedLesson, LensId, ChatAttachment, RubricScores, TeachAnnotation, TeachGap, TopicBrief } from "../types";
 
 /** A subject the learner is studying = one tree root. */
 export const topics = sqliteTable("topics", {
@@ -43,14 +43,44 @@ export const lessons = sqliteTable("lessons", {
   title: text("title").notNull(),
   subtitle: text("subtitle"),
   blocks: text("blocks", { mode: "json" }).$type<Block[]>().notNull(),
-  suggestedBranches: text("suggested_branches", { mode: "json" })
-    .$type<SuggestedBranch[]>()
+  /** net-new sub-concepts to fork (renamed from suggested_branches) */
+  suggestedForks: text("suggested_forks", { mode: "json" })
+    .$type<SuggestedFork[]>()
+    .notNull()
+    .default(sql`'[]'`),
+  /** links to concepts that already exist in this topic (resolved conceptIds) */
+  suggestedLessons: text("suggested_lessons", { mode: "json" })
+    .$type<SuggestedLesson[]>()
     .notNull()
     .default(sql`'[]'`),
   lenses: text("lenses", { mode: "json" }).$type<LensId[]>().notNull().default(sql`'[]'`),
   model: text("model"),
   generatedAt: integer("generated_at").notNull(),
 });
+
+/** A directed cross-link between two concepts in the same topic — "this concept
+ *  relates to that one". Created eagerly when a lesson recommends an existing
+ *  concept (a Link), and when a fork resolves to an existing concept. Feeds the
+ *  future graph view + backlinks. Deduped on (source, target). */
+export const conceptLinks = sqliteTable(
+  "concept_links",
+  {
+    id: text("id").primaryKey(),
+    topicId: text("topic_id")
+      .notNull()
+      .references(() => topics.id),
+    sourceConceptId: text("source_concept_id")
+      .notNull()
+      .references(() => concepts.id),
+    targetConceptId: text("target_concept_id")
+      .notNull()
+      .references(() => concepts.id),
+    /** the model's one-line "why these relate", from the source's point of view */
+    reason: text("reason"),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [uniqueIndex("concept_links_src_tgt").on(t.sourceConceptId, t.targetConceptId)],
+);
 
 export const notes = sqliteTable("notes", {
   id: text("id").primaryKey(),
@@ -116,6 +146,21 @@ export const conceptsRelations = relations(concepts, ({ one, many }) => ({
   notes: many(notes),
   chatTurns: many(chatTurns),
   teachAttempts: many(teachAttempts),
+  outgoingLinks: many(conceptLinks, { relationName: "source" }),
+  incomingLinks: many(conceptLinks, { relationName: "target" }),
+}));
+export const conceptLinksRelations = relations(conceptLinks, ({ one }) => ({
+  topic: one(topics, { fields: [conceptLinks.topicId], references: [topics.id] }),
+  source: one(concepts, {
+    fields: [conceptLinks.sourceConceptId],
+    references: [concepts.id],
+    relationName: "source",
+  }),
+  target: one(concepts, {
+    fields: [conceptLinks.targetConceptId],
+    references: [concepts.id],
+    relationName: "target",
+  }),
 }));
 export const lessonsRelations = relations(lessons, ({ one }) => ({
   concept: one(concepts, { fields: [lessons.conceptId], references: [concepts.id] }),

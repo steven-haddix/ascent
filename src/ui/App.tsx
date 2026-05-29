@@ -3,7 +3,9 @@ import { runMigrations } from "../core/store/migrate";
 import { secretStore } from "../core/secrets";
 import { getRoute } from "../core/ai/routes";
 import { getRouteId } from "../core/settings";
-import { useTopics, useConcepts, useStartTopic, useForkConcept } from "../core/store/hooks";
+import { useTopics, useConcepts, useStartTopic, useForkConcept, queryClient } from "../core/store/hooks";
+import { linkRepo } from "../core/store/repositories";
+import { findExistingConcept } from "../core/store/match";
 import type { TopicBrief } from "../core/types";
 import { FirstRun } from "./FirstRun";
 import { AppShell } from "./AppShell";
@@ -65,6 +67,26 @@ export function App() {
 
   const handleFork = (title: string, summary?: string) => {
     if (!activeTopicId || !selectedConceptId) return;
+    // Dedup guard (defense-in-depth): if this title already exists in the tree, link
+    // to it and navigate there instead of creating a duplicate. The model's Fork/Link
+    // split is computed at generation time, so it can be stale by the time the user
+    // clicks — this catches it at the moment of insert. This is the single edge-
+    // creation site for user-initiated links.
+    const existing = findExistingConcept(title, concepts.data ?? [], selectedConceptId);
+    if (existing) {
+      void linkRepo
+        .create({
+          id: crypto.randomUUID(),
+          topicId: activeTopicId,
+          sourceConceptId: selectedConceptId,
+          targetConceptId: existing.id,
+          reason: summary || null,
+          createdAt: Date.now(),
+        })
+        .then(() => queryClient.invalidateQueries({ queryKey: ["links"] }));
+      setSelectedConceptId(existing.id);
+      return;
+    }
     fork.mutate(
       { topicId: activeTopicId, parentId: selectedConceptId, title, summary },
       { onSuccess: (newId) => setSelectedConceptId(newId) }, // select it -> generates on visit

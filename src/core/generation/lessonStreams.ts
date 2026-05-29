@@ -111,6 +111,7 @@ export function ensureLessonStream(concept: ConceptRow, ctx: LessonContext): voi
       // and refresh the tree. Runs even if no view is mounted (you navigated away).
       queryClient.setQueryData(["lesson", id], row);
       queryClient.invalidateQueries({ queryKey: ["concepts"] });
+      queryClient.invalidateQueries({ queryKey: ["links"] }); // eager edges created during generation
       cleanup(id, idleTimer);
       dlog("reg", "complete:", id);
       setSnapshot(id, null); // done — observers now read the lesson from the query cache

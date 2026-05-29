@@ -1,4 +1,5 @@
 import type { Block } from "../../core/types";
+import { RichText } from "./RichText";
 
 /** A comparison / structured-fact table. Styled to the theme tokens. Tolerates
  *  ragged rows that arrive mid-stream by padding to the header count. */
@@ -15,7 +16,7 @@ export function TableBlock({ block }: { block: Block }) {
             <tr className="border-b border-rule-strong">
               {Array.from({ length: cols }, (_, i) => (
                 <th key={i} className="px-3 py-2 font-semibold text-ink">
-                  {headers[i] ?? ""}
+                  <RichText text={headers[i] ?? ""} keyPrefix={`h${i}`} />
                 </th>
               ))}
             </tr>
@@ -26,7 +27,7 @@ export function TableBlock({ block }: { block: Block }) {
             <tr key={r} className="border-b border-rule last:border-0">
               {Array.from({ length: cols }, (_, c) => (
                 <td key={c} className="px-3 py-2 align-top text-ink-2">
-                  {row[c] ?? ""}
+                  <RichText text={row[c] ?? ""} keyPrefix={`r${r}c${c}`} />
                 </td>
               ))}
             </tr>

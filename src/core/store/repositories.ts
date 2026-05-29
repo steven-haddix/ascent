@@ -3,13 +3,15 @@
 // later swap in a reactive layer (TanStack DB) or a sync engine without UI churn.
 import { asc, eq, sql } from "drizzle-orm";
 import { db } from "./client";
-import { topics, concepts, lessons, notes, chatTurns, teachAttempts, usageEvents } from "./schema";
+import { topics, concepts, conceptLinks, lessons, notes, chatTurns, teachAttempts, usageEvents } from "./schema";
 
 export type TopicInsert = typeof topics.$inferInsert;
 export type TopicRow = typeof topics.$inferSelect;
 export type ConceptInsert = typeof concepts.$inferInsert;
 export type ConceptRow = typeof concepts.$inferSelect;
 export type LessonInsert = typeof lessons.$inferInsert;
+export type ConceptLinkInsert = typeof conceptLinks.$inferInsert;
+export type ConceptLinkRow = typeof conceptLinks.$inferSelect;
 export type NoteInsert = typeof notes.$inferInsert;
 export type ChatTurnInsert = typeof chatTurns.$inferInsert;
 export type TeachAttemptInsert = typeof teachAttempts.$inferInsert;
@@ -65,6 +67,22 @@ export const lessonRepo = {
   get: (conceptId: string) => db.select().from(lessons).where(eq(lessons.conceptId, conceptId)).get(),
   upsert: (value: LessonInsert) =>
     db.insert(lessons).values(value).onConflictDoUpdate({ target: lessons.conceptId, set: value }).run(),
+};
+
+/** Cross-link edges between concepts (the graph layer beyond the parent/child
+ *  tree). Inserts are idempotent — the unique (source, target) index makes a
+ *  repeat insert a no-op, so eager edge creation never doubles up. */
+export const linkRepo = {
+  byTopic: (topicId: string) =>
+    db.select().from(conceptLinks).where(eq(conceptLinks.topicId, topicId)).all(),
+  /** edges pointing OUT of a concept ("relates to …") */
+  outgoing: (conceptId: string) =>
+    db.select().from(conceptLinks).where(eq(conceptLinks.sourceConceptId, conceptId)).all(),
+  /** edges pointing INTO a concept (backlinks: "referenced by …") */
+  incoming: (conceptId: string) =>
+    db.select().from(conceptLinks).where(eq(conceptLinks.targetConceptId, conceptId)).all(),
+  create: (value: ConceptLinkInsert) =>
+    db.insert(conceptLinks).values(value).onConflictDoNothing().run(),
 };
 
 export const noteRepo = {

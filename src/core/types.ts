@@ -60,8 +60,18 @@ export interface Block {
   yLabel?: string;
 }
 
-export interface SuggestedBranch {
+/** A net-new sub-concept the lesson recommends creating — a true fork, nested
+ *  under the current concept. Only for ideas absent from the topic's tree. */
+export interface SuggestedFork {
   title: string;
+  reason: string;
+}
+
+/** A pointer to a concept that already exists in this topic — a link, not a new
+ *  node. The model returns a handle during generation; we resolve it to this
+ *  persisted form (`conceptId`) before storing it on the lesson. */
+export interface SuggestedLesson {
+  conceptId: string;
   reason: string;
 }
 
