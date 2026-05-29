@@ -229,6 +229,11 @@ export function AppShell(props: AppShellProps) {
   // matching scroll room beneath its content (you can always scroll past it).
   const [chatHeight, setChatHeight] = useState(72);
 
+  // "Ask the tutor" from the selection menu: a prefilled message the ChatDrawer
+  // auto-sends. `n` bumps per request so a repeat fires the effect again; the
+  // conceptId guard stops a stale draft replaying after navigation.
+  const [askDraft, setAskDraft] = useState<{ text: string; conceptId: string; n: number } | null>(null);
+
   // Right preview panel is drag-resizable; width persists to localStorage.
   const [previewWidth, setPreviewWidth] = useState<number>(() => getPreviewWidth());
   const startResize = (e: React.PointerEvent) => {
@@ -362,6 +367,9 @@ export function AppShell(props: AppShellProps) {
                   briefSummary={briefSummary}
                   onFork={onFork}
                   onNavigate={onSelectConcept}
+                  onAskTutor={(text) =>
+                    setAskDraft((d) => ({ text, conceptId: selected.id, n: (d?.n ?? 0) + 1 }))
+                  }
                   bottomInset={chatHeight + 24}
                 />
               </div>
@@ -370,6 +378,7 @@ export function AppShell(props: AppShellProps) {
                 concept={selected}
                 ctx={{ topicTitle, path: pathTo(concepts, selected.id), summary: selected.summary, briefSummary }}
                 onHeightChange={setChatHeight}
+                pending={askDraft}
               />
             </>
           ) : (

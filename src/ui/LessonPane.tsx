@@ -1,9 +1,13 @@
 import { useState } from "react";
 import type { ConceptRow } from "../core/store/repositories";
 import type { Block, SuggestedFork, SuggestedLesson, Term } from "../core/types";
-import { useConceptLesson } from "../core/store/hooks";
+import { useConceptLesson, useHighlights, useAddHighlight, useRemoveHighlight } from "../core/store/hooks";
 import { findExistingConcept } from "../core/store/match";
+import { buildAnchor, locateAnchor, nearestOccurrence, type Anchor } from "../core/highlights/anchor";
+import { defineInline, normalizeConcept, type MicroContext } from "../core/generation/micro";
+import type { LocatedHighlight } from "./blocks/marks";
 import { TermPopover } from "./TermPopover";
+import { QuickActionPopover, ForkIcon, type PopoverAction } from "./QuickActionPopover";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { CodeBlock } from "./code/CodeBlock";
 import { TableBlock } from "./blocks/TableBlock";
@@ -33,39 +37,70 @@ function isRenderableBlock(b: Block): boolean {
   }
 }
 
+/** Handlers + per-block highlights threaded into block rendering. */
+interface BlockRender {
+  onTerm: (t: Term, r: DOMRect) => void;
+  onHighlight: (id: string, r: DOMRect) => void;
+  /** located highlight ranges keyed by block index (block-text coordinates) */
+  highlights: Map<number, LocatedHighlight[]>;
+}
+
 /** Render one block by kind. Visual kinds are wired in per slice; unknown or
  *  not-yet-handled kinds fall back to a paragraph. */
-function renderBlock(block: Block, key: number, onTerm: (t: Term, r: DOMRect) => void) {
+function renderBlock(block: Block, index: number, r: BlockRender) {
   switch (block.kind) {
     case "section":
-      return <SectionHead key={key} block={block} />;
+      return <SectionHead key={index} block={block} />;
     case "callout":
-      return <Callout key={key} block={block} />;
+      return <Callout key={index} block={block} />;
     case "code":
-      return <CodeBlock key={key} block={block} />;
+      return <CodeBlock key={index} block={block} />;
     case "table":
-      return <TableBlock key={key} block={block} />;
+      return <TableBlock key={index} block={block} />;
     case "math":
-      return <MathBlock key={key} block={block} />;
+      return <MathBlock key={index} block={block} />;
     case "chart":
-      return <ChartBlock key={key} block={block} />;
+      return <ChartBlock key={index} block={block} />;
     case "diagram":
-      return <DiagramBlock key={key} block={block} />;
+      return <DiagramBlock key={index} block={block} />;
     default:
-      return <Paragraph key={key} block={block} onTerm={onTerm} />;
+      return (
+        <Paragraph
+          key={index}
+          block={block}
+          index={index}
+          onTerm={r.onTerm}
+          onHighlight={r.onHighlight}
+          highlights={r.highlights.get(index) ?? []}
+        />
+      );
   }
 }
 
-function Paragraph({ block, onTerm }: { block: Block; onTerm: (term: Term, rect: DOMRect) => void }) {
+function Paragraph({
+  block,
+  index,
+  onTerm,
+  onHighlight,
+  highlights,
+}: {
+  block: Block;
+  index: number;
+  onTerm: (term: Term, rect: DOMRect) => void;
+  onHighlight: (id: string, rect: DOMRect) => void;
+  highlights: LocatedHighlight[];
+}) {
   const text = block.text ?? "";
   // Streamed partials can carry half-built terms (a `gloss` before its `term`
   // arrives) — only keep terms with a real string to match on, or escapeRegex throws.
   const terms = (block.terms ?? []).filter(
     (t): t is Term => typeof t?.term === "string" && t.term.length > 0,
   );
+  // data-prose + data-block-index let the selection handler find the owning block
+  // and map a DOM selection back to this block's source text.
   return (
-    <p className="mb-[18px]">
-      <RichText text={text} terms={terms} onTerm={onTerm} />
+    <p className="mb-[18px]" data-prose data-block-index={index}>
+      <RichText text={text} terms={terms} highlights={highlights} onTerm={onTerm} onHighlight={onHighlight} />
     </p>
   );
 }
@@ -227,6 +262,123 @@ function RegenerateButton({ generating, onConfirm }: { generating: boolean; onCo
   );
 }
 
+/** The active popover: either a clicked LLM term, or a learner text selection
+ *  (fresh, or reopened from a saved highlight when `highlightId` is set). */
+type PopState =
+  | { kind: "term"; term: Term; rect: DOMRect }
+  | {
+      kind: "selection";
+      rect: DOMRect;
+      anchor: Anchor;
+      text: string;
+      highlightId: string | null;
+      gloss: string | null;
+      glossPending: boolean;
+      forking: boolean;
+      match: ConceptRow | null;
+    };
+
+type SelectionPop = Extract<PopState, { kind: "selection" }>;
+
+/** The selection menu — the QuickActionPopover with actions for a free-text
+ *  selection (or a reopened saved highlight). Owns the action handlers so the
+ *  fork/define round-trips and their loading states stay contained. */
+function SelectionMenu({
+  sel,
+  microCtx,
+  onClose,
+  onPatch,
+  onFork,
+  onAskTutor,
+  saveHighlight,
+  removeHighlight,
+}: {
+  sel: SelectionPop;
+  microCtx: MicroContext;
+  onClose: () => void;
+  onPatch: (patch: Partial<SelectionPop>) => void;
+  onFork: (title: string, summary?: string) => void;
+  onAskTutor: (message: string) => void;
+  /** persist (or update the gloss of) the highlight for this selection */
+  saveHighlight: (gloss?: string) => Promise<string>;
+  removeHighlight: (id: string) => void;
+}) {
+  const runDefine = async () => {
+    onPatch({ glossPending: true });
+    try {
+      const gloss = await defineInline(sel.text, microCtx);
+      await saveHighlight(gloss);
+      onPatch({ gloss, glossPending: false });
+    } catch {
+      onPatch({ glossPending: false });
+    }
+  };
+  const runFork = async () => {
+    onPatch({ forking: true });
+    try {
+      const { title, summary } = await normalizeConcept(sel.text, microCtx);
+      await saveHighlight(sel.gloss ?? undefined);
+      onFork(title, summary);
+    } finally {
+      onClose();
+    }
+  };
+  const runAsk = () => {
+    void saveHighlight(sel.gloss ?? undefined);
+    onAskTutor(`Explain this from the lesson: "${sel.text}"`);
+    onClose();
+  };
+  const runGoTo = () => {
+    void saveHighlight(sel.gloss ?? undefined);
+    if (sel.match) onFork(sel.match.title, sel.gloss ?? undefined);
+    onClose();
+  };
+  const runCopy = () => {
+    void navigator.clipboard?.writeText(sel.text);
+    onClose();
+  };
+  const runRemove = () => {
+    if (sel.highlightId) removeHighlight(sel.highlightId);
+    onClose();
+  };
+
+  const actions: PopoverAction[] = [];
+  if (sel.match) {
+    actions.push({ label: `Go to “${sel.match.title}”`, variant: "accent", onClick: runGoTo });
+  } else {
+    actions.push({ label: "Fork branch", variant: "accent", icon: <ForkIcon />, onClick: runFork, loading: sel.forking });
+  }
+  if (!sel.gloss && !sel.match) {
+    actions.push({ label: "Define inline", onClick: runDefine, loading: sel.glossPending });
+  }
+  actions.push({ label: "Ask the tutor", onClick: runAsk });
+  actions.push({ label: "Copy", onClick: runCopy });
+  if (sel.highlightId) actions.push({ label: "Remove", onClick: runRemove });
+
+  const gloss = sel.glossPending
+    ? "Defining…"
+    : (sel.gloss ?? (sel.match ? "Already a concept in this topic." : "Define inline for a one-line gloss."));
+
+  return (
+    <QuickActionPopover
+      rect={sel.rect}
+      title={sel.text}
+      chip={sel.match ? "in your tree" : sel.highlightId ? "highlight" : "selection"}
+      gloss={gloss}
+      glossMuted={sel.glossPending || !sel.gloss}
+      actions={actions}
+      footer={
+        sel.match
+          ? "Links this mention to the existing concept."
+          : sel.highlightId
+            ? "Saved highlight · click it again anytime."
+            : "Fork creates a deep-dive concept under this one."
+      }
+      onClose={onClose}
+    />
+  );
+}
+
 export function LessonPane({
   concept,
   concepts,
@@ -235,6 +387,7 @@ export function LessonPane({
   briefSummary,
   onFork,
   onNavigate,
+  onAskTutor,
   bottomInset,
 }: {
   concept: ConceptRow;
@@ -246,6 +399,8 @@ export function LessonPane({
   onFork: (title: string, summary?: string) => void;
   /** navigate to an existing concept (a Link), without creating a new node */
   onNavigate: (conceptId: string) => void;
+  /** open the chat drawer and auto-send a message (the selection "Ask the tutor") */
+  onAskTutor: (message: string) => void;
   /** scroll room to reserve below the content so the chat drawer (which overlays
    *  the bottom of the lesson) never traps the last content out of reach. */
   bottomInset?: number;
@@ -269,7 +424,14 @@ export function LessonPane({
     existingConcepts,
     briefSummary,
   });
-  const [pop, setPop] = useState<{ term: Term; rect: DOMRect } | null>(null);
+
+  const highlightsQ = useHighlights(concept.id);
+  const addHighlight = useAddHighlight(concept.id);
+  const removeHighlight = useRemoveHighlight(concept.id);
+  const microCtx: MicroContext = { topicTitle, path, conceptTitle: concept.title, briefSummary };
+
+  // One popover at a time: an LLM term click, or a learner text selection.
+  const [pop, setPop] = useState<PopState | null>(null);
 
   // While generating (first time OR regenerating), show the live stream; otherwise
   // the persisted lesson wins — so a regenerate visibly replaces the old one.
@@ -302,6 +464,87 @@ export function LessonPane({
       forks.push(f);
     }
   }
+
+  // Place each saved highlight in the first paragraph block whose source text its
+  // anchor resolves in (stable assignment, so a phrase repeated across blocks isn't
+  // double-rendered). Skipped while generating — block text isn't settled yet.
+  const placedHighlights = new Map<number, LocatedHighlight[]>();
+  if (!generating) {
+    const placed = new Set<string>();
+    blocks.forEach((b, i) => {
+      if (b.kind !== "paragraph") return;
+      const text = b.text ?? "";
+      const arr: LocatedHighlight[] = [];
+      for (const h of highlightsQ.data ?? []) {
+        if (placed.has(h.id)) continue;
+        const loc = locateAnchor(text, { exact: h.exact, prefix: h.prefix, suffix: h.suffix });
+        if (loc) {
+          arr.push({ id: h.id, gloss: h.gloss, start: loc.start, end: loc.end });
+          placed.add(h.id);
+        }
+      }
+      if (arr.length) placedHighlights.set(i, arr);
+    });
+  }
+
+  // Capture a prose selection → open the selection menu. Only fires for a non-empty
+  // selection that sits inside a single paragraph and whose text we can re-find in
+  // that block's source (a selection crossing inline math won't, and is ignored).
+  const onProseMouseUp = () => {
+    const sel = window.getSelection();
+    if (!sel || sel.isCollapsed || sel.rangeCount === 0) return;
+    const exact = sel.toString().trim();
+    if (exact.length < 2) return;
+    const range = sel.getRangeAt(0);
+    const startEl = (range.startContainer.nodeType === 1 ? range.startContainer : range.startContainer.parentElement) as HTMLElement | null;
+    const endEl = (range.endContainer.nodeType === 1 ? range.endContainer : range.endContainer.parentElement) as HTMLElement | null;
+    const para = startEl?.closest("[data-prose]") as HTMLElement | null;
+    if (!para || para !== endEl?.closest("[data-prose]")) return;
+    const blockIndex = Number(para.dataset.blockIndex);
+    const blockText = blocks[blockIndex]?.text ?? "";
+    if (!blockText) return;
+    // Rendered offset of the selection start within the paragraph — a hint that
+    // disambiguates which occurrence of `exact` in the source the learner picked.
+    const pre = document.createRange();
+    pre.selectNodeContents(para);
+    pre.setEnd(range.startContainer, range.startOffset);
+    const src = nearestOccurrence(blockText, exact, pre.toString().length);
+    if (src === null) return;
+    setPop({
+      kind: "selection",
+      rect: range.getBoundingClientRect(),
+      anchor: buildAnchor(blockText, src, src + exact.length),
+      text: exact,
+      highlightId: null,
+      gloss: null,
+      glossPending: false,
+      forking: false,
+      match: findExistingConcept(exact, concepts, concept.id),
+    });
+  };
+
+  // Reopen the menu for an already-saved highlight (clicked in the prose).
+  const onHighlightClick = (id: string, rect: DOMRect) => {
+    const h = (highlightsQ.data ?? []).find((x) => x.id === id);
+    if (!h) return;
+    setPop({
+      kind: "selection",
+      rect,
+      anchor: { exact: h.exact, prefix: h.prefix, suffix: h.suffix },
+      text: h.exact,
+      highlightId: h.id,
+      gloss: h.gloss,
+      glossPending: false,
+      forking: false,
+      match: findExistingConcept(h.exact, concepts, concept.id),
+    });
+  };
+
+  const blockRender: BlockRender = {
+    onTerm: (term, rect) => setPop({ kind: "term", term, rect }),
+    onHighlight: onHighlightClick,
+    highlights: placedHighlights,
+  };
 
   return (
     <div className="mx-auto max-w-[720px] px-12 pt-10" style={{ paddingBottom: bottomInset ?? 96 }}>
@@ -351,8 +594,8 @@ export function LessonPane({
             </div>
           }
         >
-          <div className="mt-7 font-serif text-[16.5px] leading-[1.65] text-ink">
-            {blocks.map((b, i) => renderBlock(b, i, (t, r) => setPop({ term: t, rect: r })))}
+          <div className="mt-7 font-serif text-[16.5px] leading-[1.65] text-ink" onMouseUp={onProseMouseUp}>
+            {blocks.map((b, i) => renderBlock(b, i, blockRender))}
             {generating && (
               <div className="mt-2 flex items-center gap-2 font-sans text-xs text-ink-3">
                 <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />
@@ -372,7 +615,7 @@ export function LessonPane({
         </ErrorBoundary>
       )}
 
-      {pop && (
+      {pop?.kind === "term" && (
         <TermPopover
           term={pop.term}
           rect={pop.rect}
@@ -381,6 +624,25 @@ export function LessonPane({
             onFork(pop.term.term, pop.term.gloss);
             setPop(null);
           }}
+        />
+      )}
+      {pop?.kind === "selection" && (
+        <SelectionMenu
+          sel={pop}
+          microCtx={microCtx}
+          onClose={() => setPop(null)}
+          onPatch={(patch) => setPop((p) => (p && p.kind === "selection" ? { ...p, ...patch } : p))}
+          onFork={onFork}
+          onAskTutor={onAskTutor}
+          saveHighlight={(gloss) =>
+            addHighlight.mutateAsync({
+              exact: pop.anchor.exact,
+              prefix: pop.anchor.prefix,
+              suffix: pop.anchor.suffix,
+              gloss,
+            })
+          }
+          removeHighlight={(id) => removeHighlight.mutate(id)}
         />
       )}
     </div>

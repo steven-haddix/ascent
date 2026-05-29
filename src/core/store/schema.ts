@@ -82,6 +82,26 @@ export const conceptLinks = sqliteTable(
   (t) => [uniqueIndex("concept_links_src_tgt").on(t.sourceConceptId, t.targetConceptId)],
 );
 
+/** A learner's own highlight over a concept's lesson prose. Anchored by quote +
+ *  context (exact text + surrounding prefix/suffix) so it survives blocks shifting;
+ *  `gloss` is filled on demand by "Define inline". Dedup by anchor is done in the
+ *  hook (not a DB constraint) so an insert can return an existing row's id. */
+export const highlights = sqliteTable("highlights", {
+  id: text("id").primaryKey(),
+  conceptId: text("concept_id")
+    .notNull()
+    .references(() => concepts.id),
+  /** the selected text, verbatim */
+  exact: text("exact").notNull(),
+  /** up to ~32 chars of block text immediately before the selection */
+  prefix: text("prefix").notNull().default(""),
+  /** up to ~32 chars of block text immediately after the selection */
+  suffix: text("suffix").notNull().default(""),
+  /** one-line definition, populated lazily by "Define inline" */
+  gloss: text("gloss"),
+  createdAt: integer("created_at").notNull(),
+});
+
 export const notes = sqliteTable("notes", {
   id: text("id").primaryKey(),
   conceptId: text("concept_id")
@@ -146,8 +166,12 @@ export const conceptsRelations = relations(concepts, ({ one, many }) => ({
   notes: many(notes),
   chatTurns: many(chatTurns),
   teachAttempts: many(teachAttempts),
+  highlights: many(highlights),
   outgoingLinks: many(conceptLinks, { relationName: "source" }),
   incomingLinks: many(conceptLinks, { relationName: "target" }),
+}));
+export const highlightsRelations = relations(highlights, ({ one }) => ({
+  concept: one(concepts, { fields: [highlights.conceptId], references: [concepts.id] }),
 }));
 export const conceptLinksRelations = relations(conceptLinks, ({ one }) => ({
   topic: one(topics, { fields: [conceptLinks.topicId], references: [topics.id] }),

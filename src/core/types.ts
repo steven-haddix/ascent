@@ -80,6 +80,21 @@ export interface ChatAttachment {
   ref: string;
 }
 
+/** A learner's own highlight over lesson prose — the personal annotation layer
+ *  alongside the LLM's forkable terms. Anchored by quote + context
+ *  (TextQuoteSelector): `exact` is the selected text; `prefix`/`suffix` are a few
+ *  characters of surrounding block text used to re-locate it on render. `gloss`
+ *  is filled lazily by "Define inline". */
+export interface Highlight {
+  id: string;
+  conceptId: string;
+  exact: string;
+  prefix: string;
+  suffix: string;
+  gloss: string | null;
+  createdAt: number;
+}
+
 // --- Feynman teach-back ---
 
 /** Who the learner explains to — shapes how the grader weights the rubric. */

@@ -31,6 +31,9 @@ pnpm-debug.log*
 # Local OMC tooling state (not part of the project)
 .omc/
 
+# Superpowers brainstorm/visual-companion scratch
+.superpowers/
+
 # Drizzle
 src-tauri/db/*.sqlite
 src-tauri/db/*.sqlite-*

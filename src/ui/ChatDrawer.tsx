@@ -31,12 +31,16 @@ export function ChatDrawer({
   concept,
   ctx,
   onHeightChange,
+  pending,
 }: {
   concept: ConceptRow;
   ctx: ChatContext;
   /** reports the drawer's rendered height so the lesson can reserve scroll room
    *  beneath it (it overlays the lesson, so the lesson pads by this much). */
   onHeightChange?: (height: number) => void;
+  /** a prefilled message to auto-send (the selection menu's "Ask the tutor"); `n`
+   *  bumps per request, `conceptId` guards against a stale draft after navigation. */
+  pending?: { text: string; conceptId: string; n: number } | null;
 }) {
   const { turns, streaming, sending, send } = useChat(concept, ctx);
   const [open, setOpen] = useState(false);
@@ -61,6 +65,14 @@ export function ChatDrawer({
     setOpen(true);
     send(text);
   };
+
+  // Auto-send a "Ask the tutor" draft from the selection menu. Keyed on `n` so each
+  // request fires once; the conceptId guard prevents a draft meant for another
+  // concept from replaying here after navigation.
+  useEffect(() => {
+    if (pending && pending.conceptId === concept.id && pending.n > 0) submit(pending.text);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pending?.n]);
   const changeMode = (m: TutorMode) => {
     setMode(m);
     setTutorMode(m);

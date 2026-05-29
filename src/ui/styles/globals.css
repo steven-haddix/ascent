@@ -17,6 +17,8 @@
   --color-rule: #e6e0d0;
   --color-rule-strong: #d4ccb6;
   --color-accent: #c4622d;
+  /* learner highlights — a warm yellow, distinct from accent-orange LLM terms */
+  --color-highlight: #d9a83e;
 
   --font-sans: "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --font-serif: "Source Serif 4", "Source Serif Pro", Georgia, serif;

@@ -3,7 +3,7 @@
 // later swap in a reactive layer (TanStack DB) or a sync engine without UI churn.
 import { asc, eq, sql } from "drizzle-orm";
 import { db } from "./client";
-import { topics, concepts, conceptLinks, lessons, notes, chatTurns, teachAttempts, usageEvents } from "./schema";
+import { topics, concepts, conceptLinks, lessons, notes, chatTurns, teachAttempts, highlights, usageEvents } from "./schema";
 
 export type TopicInsert = typeof topics.$inferInsert;
 export type TopicRow = typeof topics.$inferSelect;
@@ -16,6 +16,8 @@ export type NoteInsert = typeof notes.$inferInsert;
 export type ChatTurnInsert = typeof chatTurns.$inferInsert;
 export type TeachAttemptInsert = typeof teachAttempts.$inferInsert;
 export type TeachAttemptRow = typeof teachAttempts.$inferSelect;
+export type HighlightInsert = typeof highlights.$inferInsert;
+export type HighlightRow = typeof highlights.$inferSelect;
 export type UsageEventInsert = typeof usageEvents.$inferInsert;
 export type UsageEventRow = typeof usageEvents.$inferSelect;
 
@@ -106,6 +108,16 @@ export const teachRepo = {
       .orderBy(asc(teachAttempts.createdAt))
       .all(),
   create: (value: TeachAttemptInsert) => db.insert(teachAttempts).values(value).run(),
+};
+
+/** A learner's personal highlights on a concept's lesson prose. */
+export const highlightRepo = {
+  byConcept: (conceptId: string) =>
+    db.select().from(highlights).where(eq(highlights.conceptId, conceptId)).orderBy(asc(highlights.createdAt)).all(),
+  create: (value: HighlightInsert) => db.insert(highlights).values(value).run(),
+  setGloss: (id: string, gloss: string) =>
+    db.update(highlights).set({ gloss }).where(eq(highlights.id, id)).run(),
+  remove: (id: string) => db.delete(highlights).where(eq(highlights.id, id)).run(),
 };
 
 /** Token-usage ledger. Append-only inserts (from the AI usage middleware) plus

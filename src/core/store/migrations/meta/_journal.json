@@ -43,6 +43,13 @@
       "when": 1780084869113,
       "tag": "0005_fork_vs_link",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1780091830393,
+      "tag": "0006_user_highlights",
+      "breakpoints": true
     }
   ]
 }

@@ -10,6 +10,7 @@ import {
   chatRepo,
   noteRepo,
   teachRepo,
+  highlightRepo,
   usageRepo,
   type ConceptRow,
   type UsageTotals,
@@ -208,6 +209,53 @@ export function useAddNote(conceptId: string) {
     mutationFn: (text: string) =>
       noteRepo.create({ id: crypto.randomUUID(), conceptId, text, createdAt: Date.now() }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["notes", conceptId] }),
+  });
+}
+
+/** A concept's learner highlights (the personal annotation layer). */
+export const useHighlights = (conceptId: string | null) =>
+  useQuery({
+    queryKey: ["highlights", conceptId],
+    queryFn: () => highlightRepo.byConcept(conceptId!),
+    enabled: !!conceptId,
+  });
+
+/** Insert a highlight, or — if one with the same anchor already exists — return its
+ *  id (updating its gloss if a new one is supplied). Dedup lives here, not in the
+ *  DB, so acting on the same selection twice never stacks duplicates. */
+export function useAddHighlight(conceptId: string) {
+  return useMutation({
+    mutationFn: async ({
+      exact,
+      prefix,
+      suffix,
+      gloss,
+    }: {
+      exact: string;
+      prefix: string;
+      suffix: string;
+      gloss?: string | null;
+    }) => {
+      const existing = (await highlightRepo.byConcept(conceptId)).find(
+        (h) => h.exact === exact && h.prefix === prefix && h.suffix === suffix,
+      );
+      if (existing) {
+        if (gloss && gloss !== existing.gloss) await highlightRepo.setGloss(existing.id, gloss);
+        return existing.id;
+      }
+      const id = crypto.randomUUID();
+      await highlightRepo.create({ id, conceptId, exact, prefix, suffix, gloss: gloss ?? null, createdAt: Date.now() });
+      return id;
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["highlights", conceptId] }),
+  });
+}
+
+/** Delete a highlight (the popover's Remove action). */
+export function useRemoveHighlight(conceptId: string) {
+  return useMutation({
+    mutationFn: (id: string) => highlightRepo.remove(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["highlights", conceptId] }),
   });
 }
 
