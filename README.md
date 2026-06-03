@@ -1,6 +1,9 @@
-# Ascent
 
+# Ascent
 **Learn anything by growing it, not memorizing it.**
+
+<img width="1801" height="1153" alt="Screenshot 2026-06-03 at 11 15 55 AM" src="https://github.com/user-attachments/assets/896a0470-88ec-41b6-85d4-d16ed74d412d" />
+
 
 Ascent is a desktop app for learning hard things deeply. Instead of handing you a fixed
 course, it grows a living **tree of concepts** around whatever you want to understand —
