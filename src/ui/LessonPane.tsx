@@ -15,6 +15,7 @@ import { MathBlock } from "./blocks/MathBlock";
 import { RichText } from "./blocks/RichText";
 import { ChartBlock } from "./blocks/ChartBlock";
 import { DiagramBlock } from "./blocks/DiagramBlock";
+import { NextSteps, type RelatedItem } from "./NextSteps";
 
 /** A block is renderable once it has the content its kind needs — guards against
  *  empty or half-streamed blocks. */
@@ -126,94 +127,6 @@ function SectionHead({ block }: { block: Block }) {
       <span className="text-[11.5px] font-semibold uppercase tracking-wide text-ink">{block.label}</span>
       {block.hint && <span className="text-[11.5px] text-ink-3">{block.hint}</span>}
     </div>
-  );
-}
-
-/** A row at the lesson foot: a Link to an existing concept, or a Fork to a new one.
- *  Same shape, different action label + handler. */
-function SuggestionRow({
-  title,
-  reason,
-  action,
-  onClick,
-}: {
-  title: string;
-  reason: string;
-  action: string;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className="grid grid-cols-[1fr_auto] items-center gap-3 rounded-md border border-rule bg-surface px-3 py-2.5 text-left hover:border-accent hover:bg-surface-2"
-    >
-      <span>
-        <span className="block text-[13px] font-medium text-ink">{title}</span>
-        {reason && <span className="mt-0.5 block text-[12px] text-ink-3">{reason}</span>}
-      </span>
-      <span className="shrink-0 font-mono text-[11.5px] text-ink-3">{action}</span>
-    </button>
-  );
-}
-
-function SuggestionSection({ label, hint, children }: { label: string; hint: string; children: React.ReactNode }) {
-  return (
-    <div className="mt-9 font-sans">
-      <div className="mb-3 flex items-baseline justify-between border-b border-rule pb-2">
-        <span className="text-[11.5px] font-semibold uppercase tracking-wide text-ink">{label}</span>
-        <span className="text-[11.5px] text-ink-3">{hint}</span>
-      </div>
-      <div className="flex flex-col gap-1.5">{children}</div>
-    </div>
-  );
-}
-
-/** A link to a concept that already exists in the tree. `viaFork` rows are forks
- *  that turned out to match an existing concept at render time — they route through
- *  `onFork` so the dedup guard (one site) navigates AND records the edge; plain
- *  links navigate directly (their edge was created eagerly at generation). */
-export interface RelatedItem {
-  conceptId: string;
-  title: string;
-  reason: string;
-  viaFork: boolean;
-}
-
-function NextSteps({
-  related,
-  forks,
-  onFork,
-  onNavigate,
-}: {
-  related: RelatedItem[];
-  forks: SuggestedFork[];
-  onFork: (title: string, summary?: string) => void;
-  onNavigate: (conceptId: string) => void;
-}) {
-  if (!related.length && !forks.length) return null;
-  return (
-    <>
-      {related.length > 0 && (
-        <SuggestionSection label="Related in your tree" hint="Already here — go revisit">
-          {related.map((r) => (
-            <SuggestionRow
-              key={r.conceptId}
-              title={r.title}
-              reason={r.reason}
-              action="Go to →"
-              onClick={() => (r.viaFork ? onFork(r.title, r.reason) : onNavigate(r.conceptId))}
-            />
-          ))}
-        </SuggestionSection>
-      )}
-      {forks.length > 0 && (
-        <SuggestionSection label="Branches to explore" hint="New — fork into your tree">
-          {forks.map((f, i) => (
-            <SuggestionRow key={i} title={f.title} reason={f.reason} action="Fork →" onClick={() => onFork(f.title, f.reason)} />
-          ))}
-        </SuggestionSection>
-      )}
-    </>
   );
 }
 
@@ -417,7 +330,7 @@ export function LessonPane({
     .filter((c) => c.id !== concept.id)
     .map((c, i) => ({ handle: `c${i + 1}`, conceptId: c.id, title: c.title, summary: c.summary }));
 
-  const { lesson, partial, generating, error, retry, stop } = useConceptLesson(concept, {
+  const { lesson, loaded, partial, generating, error, generate, stop } = useConceptLesson(concept, {
     topicTitle,
     path,
     summary: concept.summary,
@@ -440,6 +353,9 @@ export function LessonPane({
   const display = generating ? partial : (lesson ?? partial);
   const subtitle = display?.subtitle ?? null;
   const blocks = ((display?.blocks ?? []) as Block[]).filter(isRenderableBlock);
+  // Idle = nothing generated and nothing in flight → show the Generate CTA. Gated on
+  // `loaded` so it doesn't flash before a persisted lesson resolves when returning.
+  const idle = loaded && !lesson && !generating && !error;
 
   // Split the lesson's closing recommendations into Links (existing concepts) and
   // Forks (net-new), re-resolved against the LIVE tree: a stored link whose target
@@ -559,11 +475,30 @@ export function LessonPane({
             </span>
           ))}
         </div>
-        {lesson && <RegenerateButton generating={generating} onConfirm={retry} />}
+        {lesson && <RegenerateButton generating={generating} onConfirm={generate} />}
       </div>
 
       <h1 className="font-serif text-4xl font-normal leading-tight tracking-tight text-ink">{concept.title}</h1>
       {subtitle && <p className="mt-2 font-serif text-lg italic text-ink-2">{subtitle}</p>}
+
+      {idle && (
+        <>
+          {concept.summary && (
+            <p className="mt-2 font-serif text-lg italic text-ink-2">{concept.summary}</p>
+          )}
+          <div className="mt-8">
+            <button
+              onClick={generate}
+              className="rounded-md bg-ink px-4 py-2 font-sans text-[13px] font-medium text-surface hover:bg-accent"
+            >
+              Generate lesson
+            </button>
+            <p className="mt-2.5 font-sans text-[11.5px] text-ink-3">
+              Writes this lesson with AI — it streams in as it's created.
+            </p>
+          </div>
+        </>
+      )}
 
       {generating && blocks.length === 0 && (
         <div className="mt-8 flex items-center gap-2 text-sm text-ink-3">
@@ -580,7 +515,7 @@ export function LessonPane({
       {error && !generating && (
         <div className="mt-8 rounded-md border border-dashed border-rule-strong bg-surface p-4 text-sm text-ink-2">
           <p className="text-red-600">Couldn't generate this lesson — {error}</p>
-          <button onClick={retry} className="mt-2 rounded-md bg-ink px-3 py-1 text-xs font-medium text-surface hover:bg-accent">
+          <button onClick={generate} className="mt-2 rounded-md bg-ink px-3 py-1 text-xs font-medium text-surface hover:bg-accent">
             Retry
           </button>
         </div>

@@ -1,6 +1,6 @@
 // Reactive read/write layer (TanStack Query over the repositories). The UI binds
 // to these hooks, never to drizzle directly — keeping the swap-to-sync seam.
-import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
+import { useCallback, useState, useSyncExternalStore } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import {
   topicRepo,
@@ -17,7 +17,7 @@ import {
   type UsageByModel,
   type UsageDay,
 } from "./repositories";
-import { findExistingConcept } from "./match";
+import { findExistingConcept, normalizeTitle } from "./match";
 import { startTopic } from "../generation/outline";
 import type { LessonContext } from "../generation/lesson";
 import {
@@ -29,7 +29,7 @@ import {
 import { chat, type ChatContext } from "../generation/tutor";
 import { generateQuiz, type QuizQuestion } from "../generation/quiz";
 import { gradeTeachBack, scoreFromRubric, type TeachContext } from "../generation/teachback";
-import type { TeachAudience, TopicBrief } from "../types";
+import type { TeachAudience, TopicBrief, TeachGap, ExistingConcept } from "../types";
 import { getTutorMode } from "../settings";
 import { queryClient } from "./queryClient";
 
@@ -77,11 +77,14 @@ export function useForkConcept() {
       parentId,
       title,
       summary,
+      remedial,
     }: {
       topicId: string;
       parentId: string;
       title: string;
       summary?: string;
+      /** mark this fork as a teach-back remedial branch (the ↻ badge in the tree) */
+      remedial?: boolean;
     }) => {
       const id = crypto.randomUUID();
       const now = Date.now();
@@ -95,7 +98,7 @@ export function useForkConcept() {
         state: "outline",
         order: now, // append after existing siblings
         mastery: 0,
-        remedial: false,
+        remedial: remedial ?? false,
         createdAt: now,
       });
       return id;
@@ -104,7 +107,7 @@ export function useForkConcept() {
   });
 }
 
-/** A concept's lesson: read if present, generated (streamed) on first visit.
+/** A concept's lesson: read if present, generated (streamed) on demand via `generate`.
  *  Generation lives in the lessonStreams registry — outside React — so a stream
  *  survives navigating away and is deduplicated: returning to a concept that is
  *  still generating attaches to the live stream instead of starting a duplicate.
@@ -122,21 +125,17 @@ export function useConceptLesson(concept: ConceptRow | null, ctx: LessonContext)
   const getSnapshot = useCallback(() => getLessonStreamSnapshot(id), [id]);
   const stream = useSyncExternalStore(subscribe, getSnapshot);
 
-  // Auto-generate on first visit only if absent AND no stream is already tracked for
-  // this concept (the registry also dedupes; this avoids even calling it on return).
-  useEffect(() => {
-    if (concept && lesson.isFetched && lesson.data === null && !stream) {
-      ensureLessonStream(concept, ctx);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [concept?.id, lesson.isFetched, lesson.data, stream]);
-
+  // Generation is explicit (the Generate button) — no auto-fire on open. `generate`
+  // starts the stream; the registry dedupes, so a double click or returning mid-stream
+  // is a no-op. `loaded` lets the view distinguish "no lesson yet" from "still looking
+  // it up," so the idle CTA never flashes before a persisted lesson resolves on return.
   return {
     lesson: lesson.data ?? null,
+    loaded: lesson.isFetched,
     partial: stream?.status === "streaming" ? stream.partial : null,
     generating: stream?.status === "streaming",
     error: stream?.status === "error" ? stream.error : null,
-    retry: () => {
+    generate: () => {
       if (concept) ensureLessonStream(concept, ctx);
     },
     stop: () => {
@@ -323,13 +322,39 @@ export const useTeachAttempts = (conceptId: string | null) =>
     enabled: !!conceptId,
   });
 
-/** The Feynman loop: grade the explanation → persist the attempt → bump the
- *  concept's mastery (app owns the math) → auto-fork each gap as a remedial
- *  branch. Returns the grade + computed masteryDelta for the result view. */
+/** The Feynman loop: grade the explanation (with the topic's existing concepts, so
+ *  the grader can link a gap to a lesson the learner already has) → persist the
+ *  attempt → bump the concept's mastery (app owns the math). Gaps are NOT forked
+ *  here — the result view surfaces them as click-to-fork / click-to-revisit
+ *  suggestions. We only eagerly record a cross-link edge for gaps the grader matched
+ *  to an existing concept (a backlink, not a new node). Returns the grade — with each
+ *  gap's handle resolved to a conceptId — plus masteryDelta for the result view. */
 export function useTeachBack(concept: ConceptRow, ctx: TeachContext) {
   return useMutation({
     mutationFn: async ({ text, audience }: { text: string; audience: TeachAudience }) => {
-      const grade = await gradeTeachBack(concept, ctx, text, audience);
+      // Offer the grader every other concept in the topic (each with a stable handle)
+      // so it can link a gap to an existing lesson instead of pointing at a duplicate —
+      // the same context the lesson generator gets.
+      const all = await conceptRepo.byTopic(concept.topicId);
+      const existingConcepts: ExistingConcept[] = all
+        .filter((c) => c.id !== concept.id)
+        .map((c, i) => ({ handle: `c${i + 1}`, conceptId: c.id, title: c.title, summary: c.summary }));
+
+      const grade = await gradeTeachBack(concept, { ...ctx, existingConcepts }, text, audience);
+
+      // Resolve each gap's cited handle → conceptId (handle first, normalized-title
+      // fallback if the model echoed a title; then a plain title match even when it
+      // cited nothing). A resolved gap renders as a Link to revisit; an unresolved one
+      // as a new branch the learner can fork on click. Nothing is forked here.
+      const byHandle = new Map(existingConcepts.map((c) => [c.handle, c.conceptId]));
+      const byTitle = new Map(existingConcepts.map((c) => [normalizeTitle(c.title), c.conceptId]));
+      const gaps: TeachGap[] = grade.gaps.map((g) => {
+        const ref = (g.handle ?? "").trim();
+        let conceptId = ref ? (byHandle.get(ref) ?? byTitle.get(normalizeTitle(ref))) : undefined;
+        if (!conceptId) conceptId = findExistingConcept(g.title, all, concept.id)?.id;
+        if (conceptId === concept.id) conceptId = undefined; // never self-link
+        return { title: g.title, reason: g.reason, conceptId: conceptId ?? null };
+      });
 
       const attemptScore = scoreFromRubric(grade.rubric);
       const oldMastery = concept.mastery;
@@ -346,7 +371,7 @@ export function useTeachBack(concept: ConceptRow, ctx: TeachContext) {
         rubric: grade.rubric,
         verdict: grade.verdict,
         annotations: grade.annotations,
-        gaps: grade.gaps,
+        gaps,
         masteryDelta,
         createdAt: now,
       });
@@ -357,43 +382,25 @@ export function useTeachBack(concept: ConceptRow, ctx: TeachContext) {
           newMastery >= 0.8 ? "complete" : concept.status === "queued" ? "visited" : concept.status,
       });
 
-      // Each gap becomes a remedial child concept — UNLESS that concept already
-      // exists in the tree, in which case we link to it instead of duplicating it
-      // (the same dedup guard the lesson suggestions use). `pool` grows as we add
-      // children so two identically-named gaps in one batch don't double-fork.
-      const pool: ConceptRow[] = [...(await conceptRepo.byTopic(concept.topicId))];
-      let order = now;
-      for (const gap of grade.gaps) {
-        const match = findExistingConcept(gap.title, pool, concept.id);
-        if (match) {
-          await linkRepo.create({
-            id: crypto.randomUUID(),
-            topicId: concept.topicId,
-            sourceConceptId: concept.id,
-            targetConceptId: match.id,
-            reason: gap.reason || null,
-            createdAt: now,
-          });
-          continue;
-        }
-        const child: ConceptRow = {
-          id: crypto.randomUUID(),
-          topicId: concept.topicId,
-          parentId: concept.id,
-          title: gap.title,
-          summary: gap.reason,
-          status: "queued",
-          state: "outline",
-          order: order++,
-          mastery: 0,
-          remedial: true,
-          createdAt: now,
-        };
-        await conceptRepo.create(child);
-        pool.push(child);
-      }
+      // Eager, deduped backlink edges for gaps the grader matched to an existing
+      // concept (the unique (source,target) index makes a repeat a no-op). New gaps
+      // create nothing — the learner forks them from the result view if they want to.
+      await Promise.all(
+        gaps
+          .filter((g) => g.conceptId)
+          .map((g) =>
+            linkRepo.create({
+              id: crypto.randomUUID(),
+              topicId: concept.topicId,
+              sourceConceptId: concept.id,
+              targetConceptId: g.conceptId as string,
+              reason: g.reason || null,
+              createdAt: now,
+            }),
+          ),
+      );
 
-      return { ...grade, masteryDelta };
+      return { ...grade, gaps, masteryDelta };
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["teach", concept.id] });

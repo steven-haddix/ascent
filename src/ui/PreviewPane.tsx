@@ -8,10 +8,16 @@ import { getLens, getPreviewLenses } from "./lenses/registry";
  *  Quiz today). Reads the same cached lesson the center pane generated. */
 export function PreviewPane({
   concept,
+  concepts,
   ctx,
+  onFork,
+  onNavigate,
 }: {
   concept: ConceptRow;
+  concepts: ConceptRow[];
   ctx: { topicTitle: string; path: string[]; briefSummary?: string | null };
+  onFork: (title: string, summary?: string, opts?: { remedial?: boolean }) => void;
+  onNavigate: (conceptId: string) => void;
 }) {
   // Shares the ["lesson", id] cache with the center pane — no extra fetch.
   const lesson = useQuery({
@@ -51,7 +57,11 @@ export function PreviewPane({
           </button>
         ))}
       </div>
-      <div className="min-h-0 flex-1">{Active && <Active.Renderer concept={concept} ctx={ctx} />}</div>
+      <div className="min-h-0 flex-1">
+        {Active && (
+          <Active.Renderer concept={concept} concepts={concepts} ctx={ctx} onFork={onFork} onNavigate={onNavigate} />
+        )}
+      </div>
     </div>
   );
 }

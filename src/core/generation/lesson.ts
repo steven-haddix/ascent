@@ -9,7 +9,7 @@ import { getModelId } from "../settings";
 import { dlog, since } from "../debug";
 import { lessonRepo, conceptRepo, linkRepo, type ConceptRow } from "../store/repositories";
 import { normalizeTitle } from "../store/match";
-import type { Block, SuggestedFork, SuggestedLesson, LensId } from "../types";
+import type { Block, SuggestedFork, SuggestedLesson, LensId, ExistingConcept } from "../types";
 
 const LessonSchema = z.object({
   subtitle: z.string().describe("one-line subtitle framing the lesson"),
@@ -72,16 +72,6 @@ const LessonSchema = z.object({
     .array(z.object({ title: z.string(), reason: z.string() }))
     .describe("genuinely NEW sub-concepts to create, absent from the existing list — these fork a new lesson under this one"),
 });
-
-/** One existing concept in the topic, offered to the generator so it can link to
- *  it instead of duplicating it. `handle` is a short stable id the model cites in
- *  `suggestedLessons`; `conceptId` stays app-side for resolution (never sent). */
-export interface ExistingConcept {
-  handle: string;
-  conceptId: string;
-  title: string;
-  summary: string | null;
-}
 
 export interface LessonContext {
   topicTitle: string;

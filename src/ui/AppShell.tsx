@@ -201,7 +201,7 @@ interface AppShellProps {
   starting: boolean;
   startError?: string | null;
   onNewTopic: () => void;
-  onFork: (title: string, summary?: string) => void;
+  onFork: (title: string, summary?: string, opts?: { remedial?: boolean }) => void;
 }
 
 export function AppShell(props: AppShellProps) {
@@ -395,7 +395,10 @@ export function AppShell(props: AppShellProps) {
             <PreviewPane
               key={selected.id}
               concept={selected}
+              concepts={concepts}
               ctx={{ topicTitle, path: pathTo(concepts, selected.id), briefSummary }}
+              onFork={onFork}
+              onNavigate={onSelectConcept}
             />
           ) : (
             <EmptyPane

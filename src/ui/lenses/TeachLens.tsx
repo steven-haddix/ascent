@@ -1,7 +1,9 @@
 import { useState } from "react";
 import { useTeachAttempts, useTeachBack } from "../../core/store/hooks";
+import { findExistingConcept } from "../../core/store/match";
+import { NextSteps, type RelatedItem } from "../NextSteps";
 import type { LensProps } from "./types";
-import type { TeachAudience, TeachAnnotation } from "../../core/types";
+import type { TeachAudience, TeachAnnotation, SuggestedFork } from "../../core/types";
 
 const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
@@ -56,8 +58,9 @@ function Bar({ label, value }: { label: string; value: number }) {
 }
 
 /** The Feynman teach-back lens: compose → grade → annotated result with rubric,
- *  verdict, re-highlighted words, and auto-forked remedial branches. */
-export function TeachLens({ concept, ctx }: LensProps) {
+ *  verdict, re-highlighted words, and the gaps surfaced as click-to-revisit /
+ *  click-to-fork suggestions (nothing forks until the learner clicks). */
+export function TeachLens({ concept, concepts, ctx, onFork, onNavigate }: LensProps) {
   const attempts = useTeachAttempts(concept.id).data ?? [];
   const latest = attempts.length ? attempts[attempts.length - 1] : null;
   const teach = useTeachBack(concept, { ...ctx, summary: concept.summary });
@@ -95,6 +98,39 @@ export function TeachLens({ concept, ctx }: LensProps) {
   if (showResult && shown) {
     const masteryPct = Math.round(concept.mastery * 100);
     const delta = Math.round(shown.masteryDelta * 100);
+
+    // Split the graded gaps into Links (a concept already in the tree covers it —
+    // revisit it) and Forks (genuinely new — create on click), re-resolved against
+    // the LIVE tree so it stays correct as the tree grows: a gap the grader linked
+    // whose target was since deleted, or one whose title now matches an existing
+    // concept, is handled here. Mirrors the lesson foot's NextSteps split.
+    const conceptById = new Map(concepts.map((c) => [c.id, c]));
+    const related: RelatedItem[] = [];
+    const relatedIds = new Set<string>();
+    const forks: SuggestedFork[] = [];
+    for (const g of shown.gaps) {
+      if (g.conceptId) {
+        const row = conceptById.get(g.conceptId);
+        if (row) {
+          if (!relatedIds.has(row.id)) {
+            relatedIds.add(row.id);
+            related.push({ conceptId: row.id, title: row.title, reason: g.reason, viaFork: false });
+          }
+          continue;
+        }
+        // linked target was deleted — fall through and treat the gap as new
+      }
+      const match = findExistingConcept(g.title, concepts, concept.id);
+      if (match) {
+        if (!relatedIds.has(match.id)) {
+          relatedIds.add(match.id);
+          related.push({ conceptId: match.id, title: match.title, reason: g.reason, viaFork: true });
+        }
+      } else {
+        forks.push({ title: g.title, reason: g.reason });
+      }
+    }
+
     return (
       <div className="flex h-full flex-col overflow-y-auto p-4">
         <div className="mb-4 flex items-baseline justify-between border-b border-rule pb-3">
@@ -141,22 +177,16 @@ export function TeachLens({ concept, ctx }: LensProps) {
           <Annotated text={shownText} annotations={shown.annotations} />
         </div>
 
-        {shown.gaps.length > 0 ? (
+        {related.length || forks.length ? (
           <div className="mb-3">
-            <div className="mb-2 text-[10.5px] font-medium uppercase tracking-wider text-ink-3">
-              Forked {shown.gaps.length} remedial {shown.gaps.length === 1 ? "branch" : "branches"}
-            </div>
-            <div className="flex flex-col gap-1.5">
-              {shown.gaps.map((g, i) => (
-                <div key={i} className="rounded-md border border-rule border-l-2 border-l-accent bg-surface px-3 py-2">
-                  <div className="text-[12.5px] font-medium text-ink">{g.title}</div>
-                  <div className="mt-0.5 text-[11.5px] text-ink-3">{g.reason}</div>
-                </div>
-              ))}
-            </div>
-            <p className="mt-2 text-[11px] text-ink-3">
-              These now live under this concept in your tree — visit them to fill the gaps.
-            </p>
+            <NextSteps
+              related={related}
+              forks={forks}
+              onFork={(t, s) => onFork(t, s, { remedial: true })}
+              onNavigate={onNavigate}
+              forkLabel="Gaps to explore"
+              forkHint="New — fork into your tree"
+            />
           </div>
         ) : (
           <div className="mb-3 text-[12.5px] text-ink-2">No gaps flagged — solid explanation.</div>

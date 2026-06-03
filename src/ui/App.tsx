@@ -65,7 +65,7 @@ export function App() {
     );
   };
 
-  const handleFork = (title: string, summary?: string) => {
+  const handleFork = (title: string, summary?: string, opts?: { remedial?: boolean }) => {
     if (!activeTopicId || !selectedConceptId) return;
     // Dedup guard (defense-in-depth): if this title already exists in the tree, link
     // to it and navigate there instead of creating a duplicate. The model's Fork/Link
@@ -88,7 +88,7 @@ export function App() {
       return;
     }
     fork.mutate(
-      { topicId: activeTopicId, parentId: selectedConceptId, title, summary },
+      { topicId: activeTopicId, parentId: selectedConceptId, title, summary, remedial: opts?.remedial },
       { onSuccess: (newId) => setSelectedConceptId(newId) }, // select it -> generates on visit
     );
   };

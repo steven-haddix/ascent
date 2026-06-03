@@ -75,6 +75,16 @@ export interface SuggestedLesson {
   reason: string;
 }
 
+/** One concept already in a topic, offered to a generator (lesson or teach-back) so
+ *  it can link to it instead of duplicating it. `handle` is a short stable id the
+ *  model cites; `conceptId` stays app-side for resolution (never sent to the model). */
+export interface ExistingConcept {
+  handle: string;
+  conceptId: string;
+  title: string;
+  summary: string | null;
+}
+
 export interface ChatAttachment {
   kind: string;
   ref: string;
@@ -117,10 +127,15 @@ export interface TeachAnnotation {
   note: string;
 }
 
-/** A concept the learner missed — auto-forked into the tree as a remedial branch. */
+/** A concept the learner missed. The grader may match it to a concept already in the
+ *  tree (`conceptId` set) — surfaced as a Link to revisit — or leave it new, surfaced
+ *  as a Fork the learner can create on click. Not auto-forked. */
 export interface TeachGap {
   title: string;
   reason: string;
+  /** set when the grader matched this gap to an existing concept (the link target);
+   *  absent/null = a genuinely new gap the learner can fork. */
+  conceptId?: string | null;
 }
 
 // --- Topic intake (the questionnaire that refines a topic before generation) ---

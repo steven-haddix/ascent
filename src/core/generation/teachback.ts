@@ -3,10 +3,11 @@
 // annotated spans / gaps). Single structured result (not streamed) — grades must
 // be reliable, and the app (not the model) owns the mastery math downstream.
 import { generateText, Output } from "ai";
+import type { AnthropicLanguageModelOptions } from "@ai-sdk/anthropic";
 import { z } from "zod";
 import { getModel } from "../ai/service";
 import type { ConceptRow } from "../store/repositories";
-import type { RubricScores, TeachAnnotation, TeachGap, TeachAudience } from "../types";
+import type { RubricScores, TeachAnnotation, TeachAudience, ExistingConcept } from "../types";
 
 const GradeSchema = z.object({
   rubric: z.object({
@@ -28,8 +29,17 @@ const GradeSchema = z.object({
     )
     .describe("3-8 spans, each quoted verbatim from the explanation, marking strengths and weaknesses"),
   gaps: z
-    .array(z.object({ title: z.string(), reason: z.string() }))
-    .describe("0-3 concepts to study next to close the biggest gaps — concept titles + one line each; empty if excellent"),
+    .array(
+      z.object({
+        title: z.string(),
+        reason: z.string(),
+        handle: z
+          .string()
+          .optional()
+          .describe("if a concept ALREADY in the learner's tree (listed in the prompt) covers this gap, cite its handle (e.g. 'c2') to link it; omit for a genuinely new gap"),
+      }),
+    )
+    .describe("0-3 concepts to study next to close the biggest gaps — title + one-line reason each; empty if excellent"),
 });
 
 const AUDIENCE_LABEL: Record<TeachAudience, string> = {
@@ -62,11 +72,20 @@ const AUDIENCE_RUBRIC: Record<TeachAudience, string> = {
     "completeness. Gaps should be specific and technical.",
 };
 
+/** A gap as the grader returns it — `handle` cites a concept already in the tree
+ *  (a link) when one covers the gap; absent means a new branch. useTeachBack resolves
+ *  it (handle → conceptId) into a stored TeachGap before persisting. */
+export interface GradedGap {
+  title: string;
+  reason: string;
+  handle?: string;
+}
+
 export interface TeachResult {
   rubric: RubricScores;
   verdict: string;
   annotations: TeachAnnotation[];
-  gaps: TeachGap[];
+  gaps: GradedGap[];
 }
 
 export interface TeachContext {
@@ -75,6 +94,9 @@ export interface TeachContext {
   summary?: string | null;
   /** the topic's intake brief summary — keeps grading aligned with the learner's goal */
   briefSummary?: string | null;
+  /** every other concept in this topic — lets the grader link a gap to a lesson the
+   *  learner already has (by handle) instead of pointing at a duplicate new branch */
+  existingConcepts?: ExistingConcept[];
 }
 
 export async function gradeTeachBack(
@@ -86,9 +108,23 @@ export async function gradeTeachBack(
   const who = AUDIENCE_LABEL[audience];
   const focus = ctx.summary ? `\nWhat this concept is about: ${ctx.summary}` : "";
   const brief = ctx.briefSummary ? `\nLearner brief: ${ctx.briefSummary}` : "";
+  const existing = ctx.existingConcepts?.length
+    ? `\n\nConcepts ALREADY in the learner's tree for this topic — if one of these closes a gap, cite its handle in that gap's \`handle\` field (a link) instead of naming a new concept:\n${ctx.existingConcepts
+        .map((c) => `[${c.handle}] ${c.title}${c.summary ? ` — ${c.summary}` : ""}`)
+        .join("\n")}`
+    : "";
   const { output } = await generateText({
     model: getModel(),
     output: Output.object({ schema: GradeSchema }),
+    providerOptions: {
+      anthropic: {
+        // Native output_config constrained decoding can stall at response headers on a
+        // nested schema with optional fields (the gap `handle`) — and a headers-level
+        // stall hangs even this non-streamed call. The JSON tool path is the project's
+        // proven mode (same as lesson generation); grades must be reliable.
+        structuredOutputMode: "jsonTool",
+      } satisfies AnthropicLanguageModelOptions,
+    },
     prompt: `You are a rigorous but encouraging examiner running a Feynman "teach-back".
 A learner is studying "${concept.title}" within "${ctx.topicTitle}" (${ctx.path.join(" > ")}).${focus}${brief}
 They were asked to explain it to ${who}. Here is their explanation:
@@ -97,14 +133,17 @@ They were asked to explain it to ${who}. Here is their explanation:
 ${text}
 """
 
-${AUDIENCE_RUBRIC[audience]}
+${AUDIENCE_RUBRIC[audience]}${existing}
 
 Grade it. Score the rubric 0..1 (clarity, accuracy, completeness, mental model) BY THAT
 STANDARD. Write a 2-3 sentence verdict addressed to the learner, in language that fits the
 audience. Pick 3-8 short spans copied VERBATIM from their explanation (the \`text\` field
 MUST be an exact substring of the explanation above) and mark each strong / vague / gap with
-a one-line note. List 0-3 gaps as concepts to study next (none if the explanation is
-excellent). No markdown.`,
+a one-line note. List 0-3 gaps as concepts to study next to close the biggest gaps (none if
+the explanation is excellent). For each gap, if a concept ALREADY in the learner's tree
+(listed above) covers it, set that gap's \`handle\` to that concept's handle (e.g. "c2") so it
+links to the existing lesson; otherwise leave \`handle\` empty and it becomes a new branch the
+learner can fork. When unsure whether it already exists, prefer citing a handle. No markdown.`,
   });
   return output as TeachResult;
 }
