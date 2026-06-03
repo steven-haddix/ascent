@@ -8,6 +8,14 @@ import { formatHistory } from "./intake";
 import type { TopicBrief } from "../types";
 
 const OutlineSchema = z.object({
+  title: z
+    .string()
+    .describe(
+      "a concise, well-formed subject title in Title Case (2-6 words). Refine the " +
+        'learner\'s raw phrasing into a proper topic name — e.g. "i want to understand ' +
+        'how modern LLMs work" becomes "Modern Large Language Models". Not a sentence, ' +
+        "no first person, no leading verbs like 'understand' or 'learn'.",
+    ),
   concepts: z
     .array(
       z.object({
@@ -22,12 +30,13 @@ const OutlineSchema = z.object({
     .describe("4-7 top-level concepts, ordered foundational -> advanced"),
 });
 
-export type OutlineConcept = z.infer<typeof OutlineSchema>["concepts"][number];
+export type Outline = z.infer<typeof OutlineSchema>;
+export type OutlineConcept = Outline["concepts"][number];
 
 export async function outlineTopic(
   title: string,
   brief?: TopicBrief | null,
-): Promise<OutlineConcept[]> {
+): Promise<Outline> {
   const briefBlock = brief
     ? `\n\nLearner brief (tailor the tree's depth, scope, and emphasis to this):
 ${brief.summary}
@@ -38,13 +47,14 @@ ${formatHistory(brief.answers)}`
     output: Output.object({ schema: OutlineSchema }),
     prompt: `You are mapping a subject into a learning tree for a curious learner.
 
-Topic: "${title}"${briefBlock}
+Topic (as the learner phrased it): "${title}"${briefBlock}
 
-Produce 4-7 top-level concepts forming a coherent path from foundations to depth.
-For each, optionally include 2-4 sub-concepts that break it down. Keep titles short
+First, refine the learner's phrasing into a clean subject title (see the title field).
+Then produce 4-7 top-level concepts forming a coherent path from foundations to depth.
+For each, optionally include 2-4 sub-concepts that break it down. Keep concept titles short
 (2-5 words). Give a one-line rationale per concept. Order foundational -> advanced.`,
   });
-  return output.concepts;
+  return output;
 }
 
 /** Generate a topic's outline and persist it as a concept tree.
@@ -53,17 +63,19 @@ export async function startTopic(
   title: string,
   brief?: TopicBrief | null,
 ): Promise<{ topicId: string; rootConceptId: string }> {
-  const outline = await outlineTopic(title, brief);
+  const { title: refined, concepts: outline } = await outlineTopic(title, brief);
+  // Prefer the model's polished title; fall back to the learner's raw input.
+  const topicTitle = refined.trim() || title;
   const now = Date.now();
   const topicId = crypto.randomUUID();
   const rootId = crypto.randomUUID();
 
-  await topicRepo.create({ id: topicId, title, rootConceptId: rootId, brief: brief ?? null, createdAt: now });
+  await topicRepo.create({ id: topicId, title: topicTitle, rootConceptId: rootId, brief: brief ?? null, createdAt: now });
   await conceptRepo.create({
     id: rootId,
     topicId,
     parentId: null,
-    title,
+    title: topicTitle,
     status: "current",
     state: "outline",
     order: 0,

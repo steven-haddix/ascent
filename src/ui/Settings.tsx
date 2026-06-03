@@ -18,6 +18,13 @@ function SectionLabel({ children }: { children: ReactNode }) {
   return <div className="mb-2 text-[10.5px] font-medium uppercase tracking-wider text-ink-3">{children}</div>;
 }
 
+const TABS = [
+  { id: "model", label: "Model" },
+  { id: "cost", label: "Cost" },
+  { id: "appearance", label: "Appearance" },
+] as const;
+type TabId = (typeof TABS)[number]["id"];
+
 /** Settings modal: manage the BYO API key (set / replace / remove — never shown),
  *  pick the model used for all generation, and set theme + default tutor mode.
  *  Theme is driven by the parent (onChangeTheme) so the topbar toggle stays in sync. */
@@ -30,6 +37,7 @@ export function Settings({
   onChangeTheme: (t: Theme) => void;
   onClose: () => void;
 }) {
+  const [tab, setTab] = useState<TabId>("model");
   const [routeId, setRoute] = useState<string>(() => getRouteId());
   const route = getRoute(routeId);
   const [hasKey, setHasKey] = useState<boolean | null>(null);
@@ -106,22 +114,41 @@ export function Settings({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 p-6" onClick={onClose}>
       <div
         onClick={(e) => e.stopPropagation()}
-        className="max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-xl border border-rule bg-surface shadow-xl"
+        className="flex h-[600px] max-h-[85vh] w-full max-w-2xl overflow-hidden rounded-xl border border-rule bg-surface shadow-xl"
       >
-        <div className="sticky top-0 flex items-center justify-between border-b border-rule bg-surface px-5 py-3.5">
-          <h2 className="font-serif text-lg text-ink">Settings</h2>
-          <button
-            onClick={onClose}
-            title="Close (Esc)"
-            className="grid h-7 w-7 place-items-center rounded-md text-ink-3 hover:bg-surface-2 hover:text-ink"
-          >
-            <svg width="13" height="13" viewBox="0 0 14 14" stroke="currentColor" strokeWidth="1.4" fill="none">
-              <path d="M2 2 L12 12 M12 2 L2 12" />
-            </svg>
-          </button>
-        </div>
+        {/* Nav sidebar */}
+        <nav className="flex w-44 shrink-0 flex-col border-r border-rule bg-surface-2/40 py-3">
+          <div className="px-4 pb-2 pt-1 font-serif text-lg text-ink">Settings</div>
+          {TABS.map((t) => (
+            <button
+              key={t.id}
+              onClick={() => setTab(t.id)}
+              className={`mx-2 rounded-md px-3 py-2 text-left text-[13px] ${
+                tab === t.id ? "bg-accent/10 font-medium text-ink" : "text-ink-2 hover:bg-surface-2 hover:text-ink"
+              }`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </nav>
 
-        <div className="flex flex-col gap-6 px-5 py-5">
+        {/* Content */}
+        <div className="flex min-w-0 flex-1 flex-col">
+          <div className="flex items-center justify-end border-b border-rule px-5 py-3.5">
+            <button
+              onClick={onClose}
+              title="Close (Esc)"
+              className="grid h-7 w-7 place-items-center rounded-md text-ink-3 hover:bg-surface-2 hover:text-ink"
+            >
+              <svg width="13" height="13" viewBox="0 0 14 14" stroke="currentColor" strokeWidth="1.4" fill="none">
+                <path d="M2 2 L12 12 M12 2 L2 12" />
+              </svg>
+            </button>
+          </div>
+
+          <div className="flex flex-col gap-6 overflow-y-auto px-5 py-5">
+          {tab === "model" && (
+          <>
           {/* Provider */}
           <section>
             <SectionLabel>Provider</SectionLabel>
@@ -231,10 +258,16 @@ export function Settings({
               Applies to all generation — lessons, chat, quizzes, and teach-back grading.
             </p>
           </section>
+          </>
+          )}
 
-          {/* Usage */}
-          <UsageSection />
+          {tab === "cost" && (
+            /* Usage */
+            <UsageSection />
+          )}
 
+          {tab === "appearance" && (
+          <>
           {/* Appearance */}
           <section>
             <SectionLabel>Appearance</SectionLabel>
@@ -273,6 +306,9 @@ export function Settings({
               Sets the default for new chats. A lesson's chat can still switch modes on the fly.
             </p>
           </section>
+          </>
+          )}
+          </div>
         </div>
       </div>
     </div>

@@ -9,6 +9,7 @@ const ROUTE_KEY = "ascent-route";
 const MODEL_KEY = "ascent-model";
 const THEME_KEY = "ascent-theme";
 const PREVIEW_WIDTH_KEY = "ascent-preview-width";
+const CHAT_PANEL_HEIGHT_KEY = "ascent-chat-panel-height";
 
 /** Width bounds (px) for the resizable right preview panel. */
 export const PREVIEW_WIDTH = { min: 360, max: 820, default: 440 } as const;
@@ -21,6 +22,20 @@ export function getPreviewWidth(): number {
 
 export function setPreviewWidth(px: number) {
   localStorage.setItem(PREVIEW_WIDTH_KEY, String(Math.round(px)));
+}
+
+/** Height bounds (px) for the resizable chat conversation panel. `max` is also
+ *  clamped to a fraction of the viewport at drag time. */
+export const CHAT_PANEL_HEIGHT = { min: 220, max: 720, default: 340 } as const;
+
+export function getChatPanelHeight(): number {
+  const v = Number(localStorage.getItem(CHAT_PANEL_HEIGHT_KEY));
+  if (!Number.isFinite(v) || v <= 0) return CHAT_PANEL_HEIGHT.default;
+  return Math.min(CHAT_PANEL_HEIGHT.max, Math.max(CHAT_PANEL_HEIGHT.min, v));
+}
+
+export function setChatPanelHeight(px: number) {
+  localStorage.setItem(CHAT_PANEL_HEIGHT_KEY, String(Math.round(px)));
 }
 
 export function getTutorMode(): TutorMode {

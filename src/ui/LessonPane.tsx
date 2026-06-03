@@ -113,7 +113,9 @@ function Callout({ block }: { block: Block }) {
           {block.label}
         </span>
       )}
-      <span>{block.text}</span>
+      <span>
+        <RichText text={block.text ?? ""} />
+      </span>
     </div>
   );
 }

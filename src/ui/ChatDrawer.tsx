@@ -2,7 +2,13 @@ import { useEffect, useRef, useState } from "react";
 import type { ConceptRow } from "../core/store/repositories";
 import { useChat } from "../core/store/hooks";
 import { TUTOR_MODES, type ChatContext, type TutorMode } from "../core/generation/tutor";
-import { getTutorMode, setTutorMode } from "../core/settings";
+import {
+  getTutorMode,
+  setTutorMode,
+  getChatPanelHeight,
+  setChatPanelHeight,
+  CHAT_PANEL_HEIGHT,
+} from "../core/settings";
 
 const QUICK_PROMPTS = ["Make it simpler", "Go deeper", "Give an example", "Quiz me"];
 
@@ -47,6 +53,39 @@ export function ChatDrawer({
   const [val, setVal] = useState("");
   const [mode, setMode] = useState<TutorMode>(() => getTutorMode());
 
+  // Conversation panel is drag-resizable (top edge); height persists. The min
+  // bound also means opening never looks collapsed — it always springs to a
+  // usable size.
+  const [panelHeight, setPanelHeight] = useState<number>(() => getChatPanelHeight());
+  const [dragging, setDragging] = useState(false);
+  const startResize = (e: React.PointerEvent) => {
+    e.preventDefault();
+    setOpen(true);
+    setDragging(true);
+    const startY = e.clientY;
+    const startH = panelHeight;
+    let next = startH;
+    const onMove = (ev: PointerEvent) => {
+      // Dragging up grows the panel. Cap to a fraction of the viewport so the
+      // lesson above always keeps room.
+      const max = Math.min(CHAT_PANEL_HEIGHT.max, Math.round(window.innerHeight * 0.7));
+      next = Math.min(max, Math.max(CHAT_PANEL_HEIGHT.min, startH + (startY - ev.clientY)));
+      setPanelHeight(next);
+    };
+    const onUp = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      document.body.style.userSelect = "";
+      document.body.style.cursor = "";
+      setDragging(false);
+      setChatPanelHeight(next);
+    };
+    document.body.style.userSelect = "none";
+    document.body.style.cursor = "row-resize";
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  };
+
   const rootRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const el = rootRef.current;
@@ -58,6 +97,22 @@ export function ChatDrawer({
     onHeightChange(el.offsetHeight);
     return () => ro.disconnect();
   }, [onHeightChange]);
+
+  // Auto-grow the input to fit its content, up to two lines, then scroll. Lets
+  // a pasted multi-line prompt be readable without expanding the whole bar.
+  const taRef = useRef<HTMLTextAreaElement>(null);
+  const autoSize = () => {
+    const el = taRef.current;
+    if (!el) return;
+    const cs = getComputedStyle(el);
+    const lh = parseFloat(cs.lineHeight) || 20;
+    const pad = parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
+    const max = lh * 2 + pad;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, max)}px`;
+    el.style.overflowY = el.scrollHeight > max ? "auto" : "hidden";
+  };
+  useEffect(autoSize, [val]);
 
   const submit = (text: string) => {
     if (!text.trim() || sending) return;
@@ -85,11 +140,22 @@ export function ChatDrawer({
       ref={rootRef}
       className="absolute inset-x-0 bottom-0 z-20 border-t border-rule bg-surface shadow-[0_-4px_16px_rgba(26,24,21,0.06)]"
     >
-      {/* Expandable conversation panel — slides up/down. */}
+      {/* Drag handle to resize the conversation panel — only useful (and shown)
+          when the panel is open. */}
+      {open && (
+        <div
+          onPointerDown={startResize}
+          title="Drag to resize"
+          className="absolute inset-x-0 top-0 z-10 h-1.5 -translate-y-1/2 cursor-row-resize hover:bg-rule-strong"
+        />
+      )}
+
+      {/* Expandable conversation panel — slides up/down to a resizable height. */}
       <div
-        className={`overflow-hidden transition-[max-height] duration-200 ease-out ${open ? "max-h-[55vh]" : "max-h-0"}`}
+        style={{ height: open ? panelHeight : 0 }}
+        className={`overflow-hidden ${dragging ? "" : "transition-[height] duration-200 ease-out"}`}
       >
-        <div className="flex max-h-[55vh] flex-col">
+        <div className="flex flex-col" style={{ height: panelHeight }}>
           <div className="flex items-center justify-between border-b border-rule px-4 py-2">
             <span className="text-[10.5px] font-medium uppercase tracking-wider text-ink-3">Conversation</span>
             <select
@@ -143,6 +209,7 @@ export function ChatDrawer({
           </svg>
         </button>
         <textarea
+          ref={taRef}
           rows={1}
           value={val}
           placeholder={`Ask about ${concept.title}…`}
@@ -154,7 +221,7 @@ export function ChatDrawer({
               submit(val);
             }
           }}
-          className="max-h-28 flex-1 resize-none rounded-md border border-rule-strong bg-surface-2 px-2.5 py-1.5 text-sm text-ink outline-none focus:border-accent"
+          className="flex-1 resize-none rounded-md border border-rule-strong bg-surface-2 px-2.5 py-1.5 text-sm text-ink outline-none focus:border-accent"
         />
         <button
           disabled={sending || !val.trim()}
