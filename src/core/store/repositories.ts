@@ -1,7 +1,7 @@
 // Typed repositories — the ONLY way the rest of the app touches the store.
 // Components/services never import drizzle directly; this seam is what lets us
 // later swap in a reactive layer (TanStack DB) or a sync engine without UI churn.
-import { asc, eq, sql } from "drizzle-orm";
+import { asc, eq, inArray, or, sql } from "drizzle-orm";
 import { db } from "./client";
 import { topics, concepts, conceptLinks, lessons, notes, chatTurns, teachAttempts, highlights, usageEvents } from "./schema";
 
@@ -63,6 +63,32 @@ export const conceptRepo = {
   create: (value: ConceptInsert) => db.insert(concepts).values(value).run(),
   update: (id: string, patch: Partial<ConceptInsert>) =>
     db.update(concepts).set(patch).where(eq(concepts.id, id)).run(),
+  /** Move a set of nodes under a new parent (null = topic root). Used by the
+   *  "keep sub-concepts" delete path to lift a deleted node's children up. No-op
+   *  on an empty set. */
+  reparent: (ids: string[], newParentId: string | null) =>
+    ids.length === 0
+      ? Promise.resolve()
+      : db.update(concepts).set({ parentId: newParentId }).where(inArray(concepts.id, ids)).run(),
+  /** Hard-delete a set of concepts and everything that FK-references them, in an
+   *  order that satisfies those references (dependents first, concepts last).
+   *  `ids` is the full set to remove (e.g. a subtree from `descendantIds`); callers
+   *  compute it. conceptLinks are dropped when EITHER endpoint is removed so no edge
+   *  is left dangling. Sequential (the sqlite-proxy has no transaction seam yet);
+   *  fine for a local single-user store. */
+  removeMany: async (ids: string[]) => {
+    if (ids.length === 0) return;
+    await db
+      .delete(conceptLinks)
+      .where(or(inArray(conceptLinks.sourceConceptId, ids), inArray(conceptLinks.targetConceptId, ids)))
+      .run();
+    await db.delete(highlights).where(inArray(highlights.conceptId, ids)).run();
+    await db.delete(notes).where(inArray(notes.conceptId, ids)).run();
+    await db.delete(chatTurns).where(inArray(chatTurns.conceptId, ids)).run();
+    await db.delete(teachAttempts).where(inArray(teachAttempts.conceptId, ids)).run();
+    await db.delete(lessons).where(inArray(lessons.conceptId, ids)).run();
+    await db.delete(concepts).where(inArray(concepts.id, ids)).run();
+  },
 };
 
 export const lessonRepo = {

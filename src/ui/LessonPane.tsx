@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { ConceptRow } from "../core/store/repositories";
 import type { Block, SuggestedFork, SuggestedLesson, Term } from "../core/types";
 import { useConceptLesson, useHighlights, useAddHighlight, useRemoveHighlight } from "../core/store/hooks";
@@ -16,6 +16,8 @@ import { RichText } from "./blocks/RichText";
 import { ChartBlock } from "./blocks/ChartBlock";
 import { DiagramBlock } from "./blocks/DiagramBlock";
 import { NextSteps, type RelatedItem } from "./NextSteps";
+import { useLessonFind } from "./find/useLessonFind";
+import { FindBar } from "./find/FindBar";
 
 /** A block is renderable once it has the content its kind needs — guards against
  *  empty or half-streamed blocks. */
@@ -357,6 +359,15 @@ export function LessonPane({
   // `loaded` so it doesn't flash before a persisted lesson resolves when returning.
   const idle = loaded && !lesson && !generating && !error;
 
+  // Ctrl+F find-in-lesson over the rendered article DOM. Recomputes when content
+  // settles (blocks/generatedAt/generating) so an open search tracks streaming.
+  const articleRef = useRef<HTMLDivElement>(null);
+  const find = useLessonFind(
+    articleRef,
+    blocks.length > 0,
+    `${blocks.length}:${lesson?.generatedAt ?? 0}:${generating}`,
+  );
+
   // Split the lesson's closing recommendations into Links (existing concepts) and
   // Forks (net-new), re-resolved against the LIVE tree: a stored link whose target
   // was deleted is dropped, and a fork whose title now matches an existing concept
@@ -465,8 +476,9 @@ export function LessonPane({
   };
 
   return (
-    <div className="mx-auto max-w-[720px] px-12 pt-10" style={{ paddingBottom: bottomInset ?? 96 }}>
-      <div className="mb-4 flex items-center justify-between gap-3">
+    <div ref={articleRef} className="mx-auto max-w-[720px] px-12 pt-10" style={{ paddingBottom: bottomInset ?? 96 }}>
+      {find.isOpen && <FindBar find={find} />}
+      <div data-find-ignore className="mb-4 flex items-center justify-between gap-3">
         <div className="flex min-w-0 items-center overflow-hidden whitespace-nowrap font-mono text-[11.5px] text-ink-3">
           {path.map((b, i) => (
             <span key={i}>
@@ -501,7 +513,7 @@ export function LessonPane({
       )}
 
       {generating && blocks.length === 0 && (
-        <div className="mt-8 flex items-center gap-2 text-sm text-ink-3">
+        <div data-find-ignore className="mt-8 flex items-center gap-2 text-sm text-ink-3">
           <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />
           Generating this lesson…
           <button
@@ -513,7 +525,7 @@ export function LessonPane({
         </div>
       )}
       {error && !generating && (
-        <div className="mt-8 rounded-md border border-dashed border-rule-strong bg-surface p-4 text-sm text-ink-2">
+        <div data-find-ignore className="mt-8 rounded-md border border-dashed border-rule-strong bg-surface p-4 text-sm text-ink-2">
           <p className="text-red-600">Couldn't generate this lesson — {error}</p>
           <button onClick={generate} className="mt-2 rounded-md bg-ink px-3 py-1 text-xs font-medium text-surface hover:bg-accent">
             Retry
@@ -534,7 +546,7 @@ export function LessonPane({
           <div className="mt-7 font-serif text-[16.5px] leading-[1.65] text-ink" onMouseUp={onProseMouseUp}>
             {blocks.map((b, i) => renderBlock(b, i, blockRender))}
             {generating && (
-              <div className="mt-2 flex items-center gap-2 font-sans text-xs text-ink-3">
+              <div data-find-ignore className="mt-2 flex items-center gap-2 font-sans text-xs text-ink-3">
                 <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />
                 streaming…
                 <button
@@ -546,7 +558,9 @@ export function LessonPane({
               </div>
             )}
             {!generating && (
-              <NextSteps related={related} forks={forks} onFork={onFork} onNavigate={onNavigate} />
+              <div data-find-ignore>
+                <NextSteps related={related} forks={forks} onFork={onFork} onNavigate={onNavigate} />
+              </div>
             )}
           </div>
         </ErrorBoundary>

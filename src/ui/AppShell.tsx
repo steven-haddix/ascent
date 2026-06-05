@@ -118,6 +118,7 @@ function Sidebar({
   selectedConceptId,
   onSelectTopic,
   onSelectConcept,
+  onDeleteConcept,
   onNewTopic,
 }: {
   topics: TopicRow[];
@@ -126,6 +127,7 @@ function Sidebar({
   selectedConceptId: string | null;
   onSelectTopic: (id: string) => void;
   onSelectConcept: (id: string) => void;
+  onDeleteConcept: (nodeId: string, keepChildren: boolean) => void;
   onNewTopic: () => void;
 }) {
   return (
@@ -158,7 +160,12 @@ function Sidebar({
       </div>
       <div className="min-h-0 flex-1">
         {concepts.length > 0 ? (
-          <ConceptTree concepts={concepts} selectedId={selectedConceptId} onSelect={onSelectConcept} />
+          <ConceptTree
+            concepts={concepts}
+            selectedId={selectedConceptId}
+            onSelect={onSelectConcept}
+            onDeleteConcept={onDeleteConcept}
+          />
         ) : (
           <EmptyPane eyebrow="Empty" title="No topic open" hint="Pick a topic above, or start a new one." />
         )}
@@ -197,6 +204,7 @@ interface AppShellProps {
   concepts: ConceptRow[];
   selectedConceptId: string | null;
   onSelectConcept: (id: string) => void;
+  onDeleteConcept: (nodeId: string, keepChildren: boolean) => void;
   onStartTopic: (title: string, brief?: TopicBrief) => void;
   starting: boolean;
   startError?: string | null;
@@ -212,6 +220,7 @@ export function AppShell(props: AppShellProps) {
     concepts,
     selectedConceptId,
     onSelectConcept,
+    onDeleteConcept,
     onStartTopic,
     starting,
     startError,
@@ -345,6 +354,7 @@ export function AppShell(props: AppShellProps) {
           selectedConceptId={selectedConceptId}
           onSelectTopic={onSelectTopic}
           onSelectConcept={onSelectConcept}
+          onDeleteConcept={onDeleteConcept}
           onNewTopic={onNewTopic}
         />
         <main className="relative min-h-0 min-w-0 bg-bg">

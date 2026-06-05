@@ -63,6 +63,17 @@ html.dark .ascent-code .shiki span {
   font-weight: var(--shiki-dark-font-weight, inherit) !important;
 }
 
+/* Ctrl+F find-in-lesson — painted via the CSS Custom Highlight API (no DOM
+   mutation). `lesson-find` is every match; `lesson-find-active` (higher priority)
+   is the current one, given a stronger accent fill so it stands out. */
+::highlight(lesson-find) {
+  background-color: color-mix(in srgb, var(--color-highlight) 35%, transparent);
+}
+::highlight(lesson-find-active) {
+  background-color: color-mix(in srgb, var(--color-accent) 45%, transparent);
+  color: var(--color-ink);
+}
+
 html,
 body,
 #root {

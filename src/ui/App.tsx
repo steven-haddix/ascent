@@ -3,10 +3,11 @@ import { runMigrations } from "../core/store/migrate";
 import { secretStore } from "../core/secrets";
 import { getRoute } from "../core/ai/routes";
 import { getRouteId } from "../core/settings";
-import { useTopics, useConcepts, useStartTopic, useForkConcept, queryClient } from "../core/store/hooks";
+import { useTopics, useConcepts, useStartTopic, useForkConcept, useDeleteConcept, queryClient } from "../core/store/hooks";
 import { linkRepo } from "../core/store/repositories";
 import { findExistingConcept } from "../core/store/match";
 import type { TopicBrief } from "../core/types";
+import { childIds, descendantIds } from "./concept-tree-model";
 import { FirstRun } from "./FirstRun";
 import { AppShell } from "./AppShell";
 
@@ -32,6 +33,7 @@ export function App() {
   const concepts = useConcepts(activeTopicId);
   const startTopic = useStartTopic();
   const fork = useForkConcept();
+  const deleteConcept = useDeleteConcept();
 
   // Open the most recent topic once, on first load — but never again. "New topic"
   // clears activeTopicId to show the new-topic intake; keying this effect off
@@ -93,6 +95,24 @@ export function App() {
     );
   };
 
+  const handleDeleteConcept = (nodeId: string, keepChildren: boolean) => {
+    if (!activeTopicId) return;
+    const rows = concepts.data ?? [];
+    const node = rows.find((c) => c.id === nodeId);
+    if (!node || !node.parentId) return; // root is not deletable from the tree
+    const removedIds = keepChildren ? [nodeId] : descendantIds(rows, nodeId);
+    const reparent = keepChildren
+      ? { childIds: childIds(rows, nodeId), newParentId: node.parentId }
+      : undefined;
+    // If what we're viewing is about to vanish, fall back to the deleted node's
+    // parent (children kept by reparent survive, so selection stays valid there).
+    const selectionRemoved = selectedConceptId != null && removedIds.includes(selectedConceptId);
+    deleteConcept.mutate(
+      { removedIds, reparent },
+      { onSuccess: () => selectionRemoved && setSelectedConceptId(node.parentId) },
+    );
+  };
+
   if (phase === "loading") {
     return <div className="grid h-screen place-items-center bg-bg text-sm text-ink-3">Loading…</div>;
   }
@@ -108,6 +128,7 @@ export function App() {
       concepts={concepts.data ?? []}
       selectedConceptId={selectedConceptId}
       onSelectConcept={setSelectedConceptId}
+      onDeleteConcept={handleDeleteConcept}
       onStartTopic={handleStartTopic}
       starting={startTopic.isPending}
       startError={startTopic.error ? ((startTopic.error as Error).message ?? String(startTopic.error)) : null}

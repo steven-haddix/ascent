@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildTree } from "./concept-tree-model";
+import { buildTree, childIds, descendantIds } from "./concept-tree-model";
 import type { ConceptRow } from "../core/store/repositories";
 
 /** A ConceptRow with sensible defaults — tests only set what they care about. */
@@ -52,5 +52,43 @@ describe("buildTree", () => {
     expect(tree[0].children?.map((n) => n.id)).toEqual(["r1a"]);
     expect(tree[0].children?.[0].children?.map((n) => n.id)).toEqual(["r1a-x"]);
     expect(tree[1].children).toBeNull();
+  });
+});
+
+// A small tree shared by the subtree-walker tests:
+//   root ─ a ─ a1
+//        │   └ a2
+//        └ b
+const SUBTREE = [
+  row({ id: "root" }),
+  row({ id: "a", parentId: "root" }),
+  row({ id: "b", parentId: "root" }),
+  row({ id: "a1", parentId: "a" }),
+  row({ id: "a2", parentId: "a" }),
+];
+
+describe("descendantIds", () => {
+  it("returns the node first, then all descendants (the cascade set)", () => {
+    expect(descendantIds(SUBTREE, "a").sort()).toEqual(["a", "a1", "a2"]);
+    expect(descendantIds(SUBTREE, "a")[0]).toBe("a"); // node itself leads
+  });
+
+  it("returns just the id for a leaf", () => {
+    expect(descendantIds(SUBTREE, "a1")).toEqual(["a1"]);
+  });
+
+  it("returns the whole tree from the root", () => {
+    expect(descendantIds(SUBTREE, "root").sort()).toEqual(["a", "a1", "a2", "b", "root"]);
+  });
+});
+
+describe("childIds", () => {
+  it("returns only direct children (the reparent set), not grandchildren", () => {
+    expect(childIds(SUBTREE, "a").sort()).toEqual(["a1", "a2"]);
+    expect(childIds(SUBTREE, "root").sort()).toEqual(["a", "b"]);
+  });
+
+  it("returns [] for a leaf", () => {
+    expect(childIds(SUBTREE, "a1")).toEqual([]);
   });
 });

@@ -107,6 +107,35 @@ export function useForkConcept() {
   });
 }
 
+/** Delete a concept node. `removedIds` is the exact set to hard-delete (a single id
+ *  for "keep sub-concepts", or the whole subtree from `descendantIds` for a cascade)
+ *  — the caller computes it from the in-memory tree, keeping this layer free of tree
+ *  logic. When `reparent` is given, the node's direct children are first moved up to
+ *  `newParentId` so they survive. In-flight generations for removed nodes are aborted
+ *  (their catch resolves to an error snapshot, so a finishing stream can't re-upsert a
+ *  deleted lesson) and their cached lesson bodies are dropped. */
+export function useDeleteConcept() {
+  return useMutation({
+    mutationFn: async ({
+      removedIds,
+      reparent,
+    }: {
+      removedIds: string[];
+      reparent?: { childIds: string[]; newParentId: string | null };
+    }) => {
+      for (const id of removedIds) cancelLessonStream(id);
+      if (reparent) await conceptRepo.reparent(reparent.childIds, reparent.newParentId);
+      await conceptRepo.removeMany(removedIds);
+      for (const id of removedIds) queryClient.removeQueries({ queryKey: ["lesson", id] });
+      return removedIds;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["concepts"] });
+      queryClient.invalidateQueries({ queryKey: ["links"] });
+    },
+  });
+}
+
 /** A concept's lesson: read if present, generated (streamed) on demand via `generate`.
  *  Generation lives in the lessonStreams registry — outside React — so a stream
  *  survives navigating away and is deduplicated: returning to a concept that is
