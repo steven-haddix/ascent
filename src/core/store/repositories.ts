@@ -1,9 +1,9 @@
 // Typed repositories — the ONLY way the rest of the app touches the store.
 // Components/services never import drizzle directly; this seam is what lets us
 // later swap in a reactive layer (TanStack DB) or a sync engine without UI churn.
-import { asc, eq, inArray, or, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, or, sql } from "drizzle-orm";
 import { db } from "./client";
-import { topics, concepts, conceptLinks, lessons, notes, chatTurns, teachAttempts, highlights, usageEvents } from "./schema";
+import { topics, concepts, conceptLinks, lessons, notes, chatTurns, teachAttempts, highlights, usageEvents, widgets } from "./schema";
 
 export type TopicInsert = typeof topics.$inferInsert;
 export type TopicRow = typeof topics.$inferSelect;
@@ -20,6 +20,8 @@ export type HighlightInsert = typeof highlights.$inferInsert;
 export type HighlightRow = typeof highlights.$inferSelect;
 export type UsageEventInsert = typeof usageEvents.$inferInsert;
 export type UsageEventRow = typeof usageEvents.$inferSelect;
+export type WidgetInsert = typeof widgets.$inferInsert;
+export type WidgetRow = typeof widgets.$inferSelect;
 
 /** All-time usage roll-up. `hasUnknownCost` is true when any event couldn't be
  *  priced, so the UI can flag the dollar total as a lower bound. */
@@ -86,6 +88,7 @@ export const conceptRepo = {
     await db.delete(notes).where(inArray(notes.conceptId, ids)).run();
     await db.delete(chatTurns).where(inArray(chatTurns.conceptId, ids)).run();
     await db.delete(teachAttempts).where(inArray(teachAttempts.conceptId, ids)).run();
+    await db.delete(widgets).where(inArray(widgets.conceptId, ids)).run();
     await db.delete(lessons).where(inArray(lessons.conceptId, ids)).run();
     await db.delete(concepts).where(inArray(concepts.id, ids)).run();
   },
@@ -95,6 +98,23 @@ export const lessonRepo = {
   get: (conceptId: string) => db.select().from(lessons).where(eq(lessons.conceptId, conceptId)).get(),
   upsert: (value: LessonInsert) =>
     db.insert(lessons).values(value).onConflictDoUpdate({ target: lessons.conceptId, set: value }).run(),
+};
+
+/** Built widget payloads, keyed (conceptId, widgetId). Upsert is the only write
+ *  path — the builder job moves a row through generating → ready/failed. */
+export const widgetRepo = {
+  get: (conceptId: string, widgetId: string) =>
+    db
+      .select()
+      .from(widgets)
+      .where(and(eq(widgets.conceptId, conceptId), eq(widgets.widgetId, widgetId)))
+      .get(),
+  upsert: (value: WidgetInsert) =>
+    db
+      .insert(widgets)
+      .values(value)
+      .onConflictDoUpdate({ target: [widgets.conceptId, widgets.widgetId], set: value })
+      .run(),
 };
 
 /** Cross-link edges between concepts (the graph layer beyond the parent/child

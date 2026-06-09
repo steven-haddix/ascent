@@ -29,9 +29,12 @@ export interface ChartSeries {
 
 /** A typed lesson content block. Flat shape (kind + optional fields) keeps it
  *  reliable for structured generation and simple to render. Visual kinds
- *  (math / diagram / table / chart) render inline in the lesson body. */
+ *  (math / diagram / table / chart) render inline in the lesson body. A `widget`
+ *  block is a PLACEHOLDER: the generator emits only an id + title + spec, and a
+ *  separate cheaper agent builds the actual component into the `widgets` table
+ *  (keyed conceptId + widgetId) while the lesson keeps streaming. */
 export interface Block {
-  kind: "paragraph" | "callout" | "section" | "code" | "math" | "diagram" | "table" | "chart";
+  kind: "paragraph" | "callout" | "section" | "code" | "math" | "diagram" | "table" | "chart" | "widget";
   /** paragraph/callout body, code source, LaTeX (for `math`), or Mermaid spec (for `diagram`) */
   text?: string;
   /** callout label (e.g. "Notice") or section label */
@@ -58,7 +61,18 @@ export interface Block {
   /** for `chart`: axis labels */
   xLabel?: string;
   yLabel?: string;
+  /** for `widget`: short kebab slug, unique within the lesson (normalized app-side
+   *  via widgetKeysFor — render and job-kickoff always go through that helper) */
+  widgetId?: string;
+  /** for `widget`: 2-5 sentences specifying the interaction — the builder agent
+   *  sees ONLY this (plus concept context), never the lesson prose */
+  spec?: string;
 }
+
+/** Lifecycle of a built widget (the `widgets` table row a `widget` block points
+ *  to). `generating` covers the whole generate→compile loop; `failed` is terminal
+ *  until a manual Retry. */
+export type WidgetStatus = "generating" | "ready" | "failed";
 
 /** A net-new sub-concept the lesson recommends creating — a true fork, nested
  *  under the current concept. Only for ideas absent from the topic's tree. */

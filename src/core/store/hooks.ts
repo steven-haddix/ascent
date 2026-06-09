@@ -12,6 +12,7 @@ import {
   teachRepo,
   highlightRepo,
   usageRepo,
+  widgetRepo,
   type ConceptRow,
   type UsageTotals,
   type UsageByModel,
@@ -46,6 +47,15 @@ export const useConcepts = (topicId: string | null) =>
     queryKey: ["concepts", topicId],
     queryFn: () => conceptRepo.byTopic(topicId as string),
     enabled: !!topicId,
+  });
+
+/** A built widget payload for a lesson's `widget` placeholder block. The builder
+ *  job (widgetJobs.ts) publishes every state change into this key, so the card
+ *  moves generating → ready/failed live. */
+export const useWidget = (conceptId: string, widgetId: string) =>
+  useQuery({
+    queryKey: ["widget", conceptId, widgetId],
+    queryFn: async () => (await widgetRepo.get(conceptId, widgetId)) ?? null,
   });
 
 /** Cross-link edges for a topic — the graph layer beyond the parent/child tree.

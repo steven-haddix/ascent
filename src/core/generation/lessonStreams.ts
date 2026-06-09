@@ -6,6 +6,7 @@
 // stream keeps running when you leave, and returning attaches to it (the hook reads
 // it via useSyncExternalStore) instead of starting another.
 import { generateLesson, type LessonContext, type PartialLesson } from "./lesson";
+import { scanForWidgetJobs } from "./widgetJobs";
 import type { ConceptRow } from "../store/repositories";
 import { queryClient } from "../store/queryClient";
 import { dlog } from "../debug";
@@ -104,9 +105,15 @@ export function ensureLessonStream(concept: ConceptRow, ctx: LessonContext): voi
         (partial) => {
           armWatchdog(); // each partial proves the stream is alive — reset the timer
           setSnapshot(id, { status: "streaming", partial, error: null });
+          // Kick builds for settled widget placeholders WHILE the lesson keeps
+          // streaming — the cheaper builder agent works in parallel with the prose.
+          scanForWidgetJobs(concept, ctx, partial.blocks, false);
         },
         controller.signal,
       );
+      // Final pass over the persisted blocks: catches a widget that arrived as
+      // the very last block (excluded above while it might still be growing).
+      scanForWidgetJobs(concept, ctx, row.blocks, true);
       // generateLesson already persisted the row; publish it for an instant render
       // and refresh the tree. Runs even if no view is mounted (you navigated away).
       queryClient.setQueryData(["lesson", id], row);

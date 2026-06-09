@@ -1,7 +1,7 @@
 // Drizzle schema — the local SQLite source of truth. Subject-agnostic.
-import { sqliteTable, text, integer, real, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, real, uniqueIndex, primaryKey } from "drizzle-orm/sqlite-core";
 import { relations, sql } from "drizzle-orm";
-import type { Block, SuggestedFork, SuggestedLesson, LensId, ChatAttachment, RubricScores, TeachAnnotation, TeachGap, TopicBrief } from "../types";
+import type { Block, SuggestedFork, SuggestedLesson, LensId, ChatAttachment, RubricScores, TeachAnnotation, TeachGap, TopicBrief, WidgetStatus } from "../types";
 
 /** A subject the learner is studying = one tree root. */
 export const topics = sqliteTable("topics", {
@@ -140,6 +140,39 @@ export const teachAttempts = sqliteTable("teach_attempts", {
   createdAt: integer("created_at").notNull(),
 });
 
+/** A built interactive widget — the payload a lesson's `widget` placeholder block
+ *  points to. Deliberately NOT inside lesson.blocks: the builder job finishing
+ *  must never race the still-streaming lesson's final upsert. `source` is the JSX
+ *  the model wrote (kept for revise/debug); `compiled` is the sucrase output the
+ *  sandboxed iframe actually runs. */
+export const widgets = sqliteTable(
+  "widgets",
+  {
+    conceptId: text("concept_id")
+      .notNull()
+      .references(() => concepts.id),
+    /** normalized slug from the placeholder block, unique within the concept */
+    widgetId: text("widget_id").notNull(),
+    title: text("title").notNull(),
+    spec: text("spec").notNull(),
+    status: text("status", { enum: ["generating", "ready", "failed"] })
+      .notNull()
+      .$type<WidgetStatus>()
+      .default("generating"),
+    source: text("source"),
+    compiled: text("compiled"),
+    /** last compile/render error — set while retrying and on `failed` */
+    error: text("error"),
+    /** generation attempts so far (compile + render failures both count) */
+    attempts: integer("attempts").notNull().default(0),
+    /** model id that produced `source` */
+    model: text("model"),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.conceptId, t.widgetId] })],
+);
+
 /** One AI round-trip's token usage + a cost snapshot. Append-only; the Settings
  *  Usage view aggregates over it. `provider` is the route id (e.g. "anthropic");
  *  tokens are ground truth; `costUsd` is computed at write time from that route's
@@ -148,6 +181,9 @@ export const usageEvents = sqliteTable("usage_events", {
   id: text("id").primaryKey(),
   /** route/provider id the request went through (routes.ts) */
   provider: text("provider").notNull(),
+  /** AI task id (tasks.ts) when the call came through getModelFor — attributes
+   *  spend to a use case; null for legacy getModel() call sites */
+  task: text("task"),
   /** model id as sent to the provider (may be namespaced through a gateway) */
   model: text("model").notNull(),
   inputTokens: integer("input_tokens").notNull().default(0),
@@ -197,4 +233,7 @@ export const chatTurnsRelations = relations(chatTurns, ({ one }) => ({
 }));
 export const teachAttemptsRelations = relations(teachAttempts, ({ one }) => ({
   concept: one(concepts, { fields: [teachAttempts.conceptId], references: [concepts.id] }),
+}));
+export const widgetsRelations = relations(widgets, ({ one }) => ({
+  concept: one(concepts, { fields: [widgets.conceptId], references: [concepts.id] }),
 }));

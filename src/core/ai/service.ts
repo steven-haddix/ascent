@@ -7,8 +7,9 @@
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { wrapLanguageModel } from "ai";
 import { invoke, Channel } from "@tauri-apps/api/core";
-import { getModelId, getRouteId } from "../settings";
+import { getModelId, getRouteId, getTaskModelId, getTaskRouteId } from "../settings";
 import { getRoute, type Route } from "./routes";
+import type { AiTaskId } from "./tasks";
 import { recordingMiddleware } from "./usage";
 import { dlog, now, since } from "../debug";
 
@@ -170,5 +171,17 @@ export function getModel(modelId: string = getModelId()) {
   return wrapLanguageModel({
     model: buildModel(route, modelId),
     middleware: recordingMiddleware(route.id, modelId),
+  });
+}
+
+/** Per-task model factory (tasks.ts) — resolves the task's route + model from its
+ *  Settings overrides and tags usage events with the task id, so each use case's
+ *  cost is attributable. New use cases should prefer this over getModel(). */
+export function getModelFor(task: AiTaskId) {
+  const route = getRoute(getTaskRouteId(task));
+  const modelId = getTaskModelId(task);
+  return wrapLanguageModel({
+    model: buildModel(route, modelId),
+    middleware: recordingMiddleware(route.id, modelId, task),
   });
 }

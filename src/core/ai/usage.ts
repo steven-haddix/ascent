@@ -26,7 +26,13 @@ function tokensOf(usage: LanguageModelV3Usage | undefined): UsageTokens {
 
 /** Price the usage and append a ledger row. Fire-and-forget: recording must never
  *  block or fail a generation. Skips no-op finishes (no tokens observed). */
-function record(routeId: string, modelId: string, usage: LanguageModelV3Usage | undefined, providerMetadata: unknown): void {
+function record(
+  routeId: string,
+  modelId: string,
+  task: string | null,
+  usage: LanguageModelV3Usage | undefined,
+  providerMetadata: unknown,
+): void {
   const tokens = tokensOf(usage);
   const input = tokens.inputTokens ?? 0;
   const output = tokens.outputTokens ?? 0;
@@ -39,6 +45,7 @@ function record(routeId: string, modelId: string, usage: LanguageModelV3Usage | 
       id: crypto.randomUUID(),
       provider: routeId,
       model: modelId,
+      task,
       inputTokens: input,
       outputTokens: output,
       cachedInputTokens: cached,
@@ -50,13 +57,16 @@ function record(routeId: string, modelId: string, usage: LanguageModelV3Usage | 
     .catch((e) => dlog("usage", "record failed:", String(e)));
 }
 
-/** Middleware bound to the route + model that constructed it (in getModel). */
-export function recordingMiddleware(routeId: string, modelId: string): LanguageModelMiddleware {
+/** Middleware bound to the route + model that constructed it (in getModel /
+ *  getModelFor). `task` is the AI task id (tasks.ts) when the call came through
+ *  getModelFor — attributes the spend to a use case. */
+export function recordingMiddleware(routeId: string, modelId: string, task?: string): LanguageModelMiddleware {
+  const taskId = task ?? null;
   return {
     specificationVersion: "v3",
     wrapGenerate: async ({ doGenerate }) => {
       const result = await doGenerate();
-      record(routeId, modelId, result.usage, result.providerMetadata);
+      record(routeId, modelId, taskId, result.usage, result.providerMetadata);
       return result;
     },
     wrapStream: async ({ doStream }) => {
@@ -64,7 +74,7 @@ export function recordingMiddleware(routeId: string, modelId: string): LanguageM
       const tap = new TransformStream<LanguageModelV3StreamPart, LanguageModelV3StreamPart>({
         transform(part, controller) {
           // The single 'finish' part carries the round-trip's usage + metadata.
-          if (part.type === "finish") record(routeId, modelId, part.usage, part.providerMetadata);
+          if (part.type === "finish") record(routeId, modelId, taskId, part.usage, part.providerMetadata);
           controller.enqueue(part);
         },
       });

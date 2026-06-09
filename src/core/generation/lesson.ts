@@ -16,7 +16,7 @@ const LessonSchema = z.object({
   blocks: z
     .array(
       z.object({
-        kind: z.enum(["paragraph", "callout", "section", "code", "table", "math", "chart", "diagram"]),
+        kind: z.enum(["paragraph", "callout", "section", "code", "table", "math", "chart", "diagram", "widget"]),
         text: z
           .string()
           .optional()
@@ -60,6 +60,16 @@ const LessonSchema = z.object({
           .describe("for `chart` blocks ONLY: one or more data series"),
         xLabel: z.string().optional().describe("for `chart` blocks ONLY: x-axis label"),
         yLabel: z.string().optional().describe("for `chart` blocks ONLY: y-axis label"),
+        widgetId: z
+          .string()
+          .optional()
+          .describe("for `widget` blocks ONLY: a short kebab-case slug unique within this lesson, e.g. 'gradient-descent-slider'"),
+        spec: z
+          .string()
+          .optional()
+          .describe(
+            "for `widget` blocks ONLY: 2-5 sentences specifying the interaction — what it shows, which variables the learner controls (with ranges), what responds and how, and the one insight it should surface. The builder sees ONLY this, so make it self-contained",
+          ),
       }),
     )
     .describe(
@@ -193,7 +203,17 @@ FORMAT:
   over time (\`sequenceDiagram\`), a state machine (\`stateDiagram-v2\`), relationships
   (\`mindmap\`), or events (\`timeline\`). Keep it focused — a handful of nodes. Use VALID Mermaid
   syntax only. Optional \`title\` caption; refer to it in the prose.
-- Every block must have content: paragraph and callout need non-empty text, section needs a label, code needs non-empty text.
+- A "widget" block embeds a small INTERACTIVE component that a separate builder constructs
+  from your spec while you keep writing. Use AT MOST 1-2 per lesson, and ONLY when doing beats
+  reading — the learner manipulates something and watches a response (drag a slider to reshape
+  a curve, step through an algorithm's states, toggle a parameter and see the output move).
+  Set \`widgetId\` (short kebab-case slug, unique in this lesson), \`title\` (3-7 words), and
+  \`spec\`: 2-5 sentences naming the variables the learner controls (with ranges), what responds
+  and how, and the one insight the interaction should surface. The builder sees ONLY your spec,
+  never this lesson — make it self-contained. Refer to the widget from the surrounding prose.
+  Most lessons need ZERO widgets; never use one for decoration, or for anything a chart or
+  diagram already shows.
+- Every block must have content: paragraph and callout need non-empty text, section needs a label, code needs non-empty text, widget needs widgetId + title + spec.
 
 FINISH by recommending what to explore next, split into two lists — this is how the learner grows
 the tree without duplicating it, so choose carefully:

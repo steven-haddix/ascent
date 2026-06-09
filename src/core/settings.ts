@@ -3,6 +3,7 @@
 // the AI service can read getModelId() without an import cycle.
 import type { TutorMode } from "./generation/tutor";
 import { getRoute, DEFAULT_ROUTE_ID } from "./ai/routes";
+import { AI_TASKS, type AiTaskId } from "./ai/tasks";
 
 const TUTOR_MODE_KEY = "ascent-tutor-mode";
 const ROUTE_KEY = "ascent-route";
@@ -66,6 +67,69 @@ export function getModelId(): string {
 
 export function setModelId(id: string) {
   localStorage.setItem(MODEL_KEY, id);
+}
+
+// --- Per-task overrides (tasks.ts) ---
+// Resolution: explicit per-task setting → the task's registry default → the
+// global pick — each step validated against the task's route catalog, so a stale
+// id from another route falls through rather than being sent.
+
+/** The route a task's requests go through. Falls back to the global route. */
+export function getTaskRouteId(task: AiTaskId): string {
+  const v = localStorage.getItem(`${ROUTE_KEY}:${task}`);
+  return v ?? getRouteId();
+}
+
+export function setTaskRouteId(task: AiTaskId, id: string | null) {
+  if (id === null) localStorage.removeItem(`${ROUTE_KEY}:${task}`);
+  else localStorage.setItem(`${ROUTE_KEY}:${task}`, id);
+}
+
+/** The model a task uses, validated against the task's route catalog. */
+export function getTaskModelId(task: AiTaskId): string {
+  const route = getRoute(getTaskRouteId(task));
+  const inCatalog = (id: string | null | undefined): id is string =>
+    !!id && route.models.some((m) => m.id === id);
+  const explicit = localStorage.getItem(`${MODEL_KEY}:${task}`);
+  if (inCatalog(explicit)) return explicit;
+  const fallback = AI_TASKS[task].defaultModelId;
+  if (inCatalog(fallback)) return fallback;
+  const global = localStorage.getItem(MODEL_KEY);
+  return inCatalog(global) ? global : route.defaultModelId;
+}
+
+/** Persist a task's model override; null clears it (back to default/global). */
+export function setTaskModelId(task: AiTaskId, id: string | null) {
+  if (id === null) localStorage.removeItem(`${MODEL_KEY}:${task}`);
+  else localStorage.setItem(`${MODEL_KEY}:${task}`, id);
+}
+
+/** True when the user has explicitly pinned this task's provider or model
+ *  (as opposed to inheriting the default — possibly via a registry default). */
+export function hasTaskOverride(task: AiTaskId): boolean {
+  return (
+    localStorage.getItem(`${MODEL_KEY}:${task}`) !== null ||
+    localStorage.getItem(`${ROUTE_KEY}:${task}`) !== null
+  );
+}
+
+/** Clear a task's provider + model pins so it follows the default again. */
+export function clearTaskOverride(task: AiTaskId) {
+  localStorage.removeItem(`${MODEL_KEY}:${task}`);
+  localStorage.removeItem(`${ROUTE_KEY}:${task}`);
+}
+
+/** What the task would resolve to with no explicit override: its registry
+ *  default if valid on the default route, else the global pick. Lets the UI
+ *  label the "Use default" choice without mutating storage. */
+export function getTaskInheritedModelId(task: AiTaskId): string {
+  const route = getRoute(getRouteId());
+  const inCatalog = (id: string | null | undefined): id is string =>
+    !!id && route.models.some((m) => m.id === id);
+  const fallback = AI_TASKS[task].defaultModelId;
+  if (inCatalog(fallback)) return fallback;
+  const global = localStorage.getItem(MODEL_KEY);
+  return inCatalog(global) ? global : route.defaultModelId;
 }
 
 export const THEMES = ["cream", "paper", "dark"] as const;

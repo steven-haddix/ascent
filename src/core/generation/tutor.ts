@@ -6,9 +6,11 @@
 import { streamText, tool, stepCountIs } from "ai";
 import { z } from "zod";
 import { getModel } from "../ai/service";
-import { lessonRepo, type ConceptRow } from "../store/repositories";
+import { lessonRepo, widgetRepo, type ConceptRow } from "../store/repositories";
 import { queryClient } from "../store/queryClient";
 import { isLessonStreaming } from "./lessonStreams";
+import { ensureWidgetJob } from "./widgetJobs";
+import { widgetKeysFor } from "../widgets/keys";
 import type { Block, LensId } from "../types";
 
 export const TUTOR_MODES = {
@@ -71,7 +73,17 @@ export async function chat(
     `distinct example alongside the previous one ("also show me with NumPy", "now in PyTorch"). ` +
     `When you call the tool, write a brief one-line acknowledgement in your reply ("Added a ` +
     `walkthrough in the lesson ↓" / "Updated the example to use pandas") so the learner knows ` +
-    `where to look.`;
+    `where to look.\n\n` +
+    `If the learner asks for something INTERACTIVE — "let me play with it", "can I try ` +
+    `different values", "show me a slider / simulation / visualization I can manipulate" — call ` +
+    `setLessonWidget instead: a separate builder agent constructs a small interactive component ` +
+    `from your spec and it appears inline in the lesson. Give it a short title (3-7 words) and a ` +
+    `self-contained 2-5 sentence spec naming the variables the learner controls (with ranges), ` +
+    `what responds and how, and the insight the interaction should surface — the builder sees ` +
+    `ONLY your spec, never this conversation. Use mode="replace" to revise the previous ` +
+    `chat-added widget ("make the slider logarithmic"), mode="add" for a new one. Building takes ` +
+    `a moment, so acknowledge with something like "Building that interactive demo in the lesson ` +
+    `↓". Call it only when interaction genuinely beats prose, code, or a static chart.`;
 
   const messages = [
     ...history.map((t) => ({
@@ -157,6 +169,79 @@ export async function chat(
         await lessonRepo.upsert(updated);
         queryClient.setQueryData(["lesson", concept.id], updated);
         return { ok: true as const, mode, language, lines: code.split("\n").length };
+      },
+    }),
+    setLessonWidget: tool({
+      description:
+        "Add or replace a small interactive widget in the current lesson. A separate builder " +
+        "agent constructs it from your spec — call ONLY when the learner wants to manipulate " +
+        "something (sliders, stepping through states, toggling parameters), not for content " +
+        'prose/code/charts already cover. mode="replace" revises the most recent chat-added ' +
+        'widget in place; mode="add" appends a new one.',
+      inputSchema: z.object({
+        mode: z
+          .enum(["add", "replace"])
+          .describe("'replace' rebuilds the most recent chat-added widget in place; 'add' appends a new one"),
+        title: z.string().describe("a short, specific title (3-7 words) of what the widget does, e.g. 'Learning rate playground'"),
+        spec: z
+          .string()
+          .describe(
+            "2-5 self-contained sentences for the builder (it sees ONLY this): the variables the learner controls (with ranges), what responds and how, and the insight the interaction should surface",
+          ),
+      }),
+      execute: async ({ mode, title, spec }) => {
+        if (isLessonStreaming(concept.id)) {
+          return { ok: false as const, error: "the lesson is currently generating — try again in a moment" };
+        }
+        const lesson = await lessonRepo.get(concept.id);
+        if (!lesson) {
+          return { ok: false as const, error: "no lesson yet for this concept" };
+        }
+        const blocks: Block[] = [...lesson.blocks];
+
+        // Locate the most recent chat-added widget for replace mode; fall through
+        // to add when there is none yet.
+        let replaceIdx = -1;
+        if (mode === "replace") {
+          for (let i = blocks.length - 1; i >= 0; i--) {
+            const b = blocks[i];
+            if (b.source === "chat" && b.kind === "widget") {
+              replaceIdx = i;
+              break;
+            }
+          }
+        }
+
+        let blockIdx: number;
+        if (replaceIdx >= 0) {
+          // Keep the slug so the (conceptId, widgetId) row — and the block's spot
+          // in the lesson — carry over; the builder overwrites the row in place.
+          blocks[replaceIdx] = { ...blocks[replaceIdx], title, spec };
+          blockIdx = replaceIdx;
+        } else {
+          blocks.push({ kind: "widget", widgetId: title, title, spec, source: "chat" });
+          blockIdx = blocks.length - 1;
+        }
+        // The shared key helper resolves the final slug (normalized, deduped
+        // against every other widget in the lesson) exactly as the renderer will.
+        const widgetKey = widgetKeysFor(blocks).get(blockIdx)!;
+        const prevSource =
+          replaceIdx >= 0 ? ((await widgetRepo.get(concept.id, widgetKey))?.source ?? undefined) : undefined;
+
+        const updated = { ...lesson, blocks, generatedAt: Date.now() };
+        await lessonRepo.upsert(updated);
+        queryClient.setQueryData(["lesson", concept.id], updated);
+        ensureWidgetJob({
+          conceptId: concept.id,
+          conceptTitle: concept.title,
+          widgetId: widgetKey,
+          title,
+          spec,
+          topicTitle: ctx.topicTitle,
+          path: ctx.path,
+          prevSource,
+        });
+        return { ok: true as const, mode: replaceIdx >= 0 ? ("replace" as const) : ("add" as const), title };
       },
     }),
   };

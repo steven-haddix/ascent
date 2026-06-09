@@ -28,6 +28,9 @@ pnpm-debug.log*
 # Misc
 *.tsbuildinfo
 
+# Widget sandbox runtime — built by `bun run build:widget-runtime` (dev/build run it)
+public/widget-runtime.js
+
 # Local OMC tooling state (not part of the project)
 .omc/
 

@@ -15,6 +15,8 @@ import { MathBlock } from "./blocks/MathBlock";
 import { RichText } from "./blocks/RichText";
 import { ChartBlock } from "./blocks/ChartBlock";
 import { DiagramBlock } from "./blocks/DiagramBlock";
+import { WidgetBlock } from "./blocks/WidgetBlock";
+import { widgetKeysFor } from "../core/widgets/keys";
 import { NextSteps, type RelatedItem } from "./NextSteps";
 import { useLessonFind } from "./find/useLessonFind";
 import { FindBar } from "./find/FindBar";
@@ -29,6 +31,10 @@ function isRenderableBlock(b: Block): boolean {
       return !!(b.headers?.length || b.rows?.length);
     case "chart":
       return !!b.series?.length;
+    case "widget":
+      // Must match widgetKeysFor's completeness rule, so the renderer's key map
+      // (over filtered blocks) agrees with the stream scanner's (over raw blocks).
+      return !!(b.title?.trim() && b.spec?.trim());
     case "paragraph":
     case "callout":
     case "code":
@@ -46,6 +52,10 @@ interface BlockRender {
   onHighlight: (id: string, r: DOMRect) => void;
   /** located highlight ranges keyed by block index (block-text coordinates) */
   highlights: Map<number, LocatedHighlight[]>;
+  /** widget row keys by block index (widgetKeysFor over the rendered blocks) */
+  widgetKeys: Map<number, string>;
+  conceptId: string;
+  conceptTitle: string;
 }
 
 /** Render one block by kind. Visual kinds are wired in per slice; unknown or
@@ -66,6 +76,19 @@ function renderBlock(block: Block, index: number, r: BlockRender) {
       return <ChartBlock key={index} block={block} />;
     case "diagram":
       return <DiagramBlock key={index} block={block} />;
+    case "widget": {
+      const widgetKey = r.widgetKeys.get(index);
+      if (!widgetKey) return null; // unreachable once renderable (same rule), belt-and-braces
+      return (
+        <WidgetBlock
+          key={widgetKey}
+          block={block}
+          conceptId={r.conceptId}
+          conceptTitle={r.conceptTitle}
+          widgetKey={widgetKey}
+        />
+      );
+    }
     default:
       return (
         <Paragraph
@@ -473,6 +496,9 @@ export function LessonPane({
     onTerm: (term, rect) => setPop({ kind: "term", term, rect }),
     onHighlight: onHighlightClick,
     highlights: placedHighlights,
+    widgetKeys: widgetKeysFor(blocks),
+    conceptId: concept.id,
+    conceptTitle: concept.title,
   };
 
   return (
