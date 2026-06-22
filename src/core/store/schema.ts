@@ -1,7 +1,9 @@
 // Drizzle schema — the local SQLite source of truth. Subject-agnostic.
 import { sqliteTable, text, integer, real, uniqueIndex, primaryKey } from "drizzle-orm/sqlite-core";
 import { relations, sql } from "drizzle-orm";
-import type { Block, SuggestedFork, SuggestedLesson, LensId, ChatAttachment, RubricScores, TeachAnnotation, TeachGap, TopicBrief, WidgetStatus } from "../types";
+import type { License, Attribution } from "../media/types";
+import type { Domain } from "../visuals/catalog";
+import type { Block, SuggestedFork, SuggestedLesson, LensId, ChatAttachment, RubricScores, TeachAnnotation, TeachGap, TopicBrief, WidgetStatus, LessonDigest, LessonSnapshot, CanonSpine, CanonNotation, CanonMotif, CanonVoice } from "../types";
 
 /** A subject the learner is studying = one tree root. */
 export const topics = sqliteTable("topics", {
@@ -32,6 +34,9 @@ export const concepts = sqliteTable("concepts", {
     .notNull()
     .default("outline"),
   remedial: integer("remedial", { mode: "boolean" }).notNull().default(false),
+  /** subject domains (multi-tag), classified by the LLM at outline/fork time — drives the
+   *  domain-aware visual budget (§3a). Empty = fall back to keyword inference. */
+  domains: text("domains", { mode: "json" }).$type<Domain[]>().notNull().default(sql`'[]'`),
   createdAt: integer("created_at").notNull(),
 });
 
@@ -55,7 +60,38 @@ export const lessons = sqliteTable("lessons", {
     .default(sql`'[]'`),
   lenses: text("lenses", { mode: "json" }).$type<LensId[]>().notNull().default(sql`'[]'`),
   model: text("model"),
+  // --- Continuity Engine (B2/B5/B6) ---
+  /** compact structured summary of what this lesson established (post-stream digest); null until produced */
+  digest: text("digest", { mode: "json" }).$type<LessonDigest>(),
+  /** revision number; bumped by a self-heal rewrite (B6) */
+  version: integer("version").notNull().default(1),
+  /** when a self-heal last revised this lesson (null = never) */
+  revisedAt: integer("revised_at"),
+  /** why the last self-heal revised it (null = never) */
+  revisedReason: text("revised_reason"),
+  /** one-step-undo snapshot of the body before the last revision (null = none) */
+  prevSnapshot: text("prev_snapshot", { mode: "json" }).$type<LessonSnapshot>(),
+  /** learner state changed materially → may want re-tailoring (B5) */
+  stale: integer("stale", { mode: "boolean" }).notNull().default(false),
   generatedAt: integer("generated_at").notNull(),
+});
+
+/** The living "course memory" for a topic (one row per topic): shared spine,
+ *  notation registry, motifs, voice charter, and cross-tree prerequisite graph
+ *  every lesson conforms to. Seeded after intake+outline, then enriched by each
+ *  lesson's digest (B1). Write-backs happen AFTER a lesson upsert, never in-stream. */
+export const courseCanon = sqliteTable("course_canon", {
+  topicId: text("topic_id")
+    .primaryKey()
+    .references(() => topics.id),
+  spine: text("spine", { mode: "json" }).$type<CanonSpine>().notNull().default(sql`'{"arc":"","order":[]}'`),
+  notation: text("notation", { mode: "json" }).$type<CanonNotation[]>().notNull().default(sql`'[]'`),
+  motifs: text("motifs", { mode: "json" }).$type<CanonMotif[]>().notNull().default(sql`'[]'`),
+  voice: text("voice", { mode: "json" }).$type<CanonVoice>().notNull().default(sql`'{"tone":"","depth":"","pacing":""}'`),
+  /** prerequisite graph: conceptId → conceptIds it builds on (cross-tree "builds on") */
+  prereqs: text("prereqs", { mode: "json" }).$type<Record<string, string[]>>().notNull().default(sql`'{}'`),
+  version: integer("version").notNull().default(1),
+  updatedAt: integer("updated_at").notNull(),
 });
 
 /** A directed cross-link between two concepts in the same topic — "this concept
@@ -77,9 +113,14 @@ export const conceptLinks = sqliteTable(
       .references(() => concepts.id),
     /** the model's one-line "why these relate", from the source's point of view */
     reason: text("reason"),
+    /** edge type: a generic link, a canon "builds on" prerequisite, or a "leads to"
+     *  continuation (B8) — lets the graph view distinguish continuity edges from links. */
+    relation: text("relation", { enum: ["link", "builds-on", "leads-to"] })
+      .notNull()
+      .default("link"),
     createdAt: integer("created_at").notNull(),
   },
-  (t) => [uniqueIndex("concept_links_src_tgt").on(t.sourceConceptId, t.targetConceptId)],
+  (t) => [uniqueIndex("concept_links_src_tgt").on(t.sourceConceptId, t.targetConceptId, t.relation)],
 );
 
 /** A learner's own highlight over a concept's lesson prose. Anchored by quote +
@@ -195,6 +236,35 @@ export const usageEvents = sqliteTable("usage_events", {
   createdAt: integer("created_at").notNull(),
 });
 
+/** A provider-sourced media asset (image v1) that a `media`/`figure` placeholder points
+ *  to. Same race-avoidance rationale as `widgets`: the resolve job must never collide with
+ *  the streaming lesson's final upsert, so it lives in its own table keyed (conceptId,
+ *  mediaId). Bytes are cached on disk (localPath); the row is the index + license/attribution. */
+export const mediaAssets = sqliteTable(
+  "media_assets",
+  {
+    conceptId: text("concept_id")
+      .notNull()
+      .references(() => concepts.id),
+    mediaId: text("media_id").notNull(),
+    kind: text("kind").notNull().default("image"),
+    providerId: text("provider_id"),
+    query: text("query").notNull(),
+    status: text("status", { enum: ["generating", "ready", "failed"] })
+      .notNull()
+      .default("generating"),
+    localPath: text("local_path"),
+    width: integer("width"),
+    height: integer("height"),
+    license: text("license", { mode: "json" }).$type<License>(),
+    attribution: text("attribution", { mode: "json" }).$type<Attribution>(),
+    error: text("error"),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.conceptId, t.mediaId] })],
+);
+
 export const topicsRelations = relations(topics, ({ many }) => ({ concepts: many(concepts) }));
 export const conceptsRelations = relations(concepts, ({ one, many }) => ({
   topic: one(topics, { fields: [concepts.topicId], references: [topics.id] }),
@@ -225,6 +295,9 @@ export const conceptLinksRelations = relations(conceptLinks, ({ one }) => ({
 export const lessonsRelations = relations(lessons, ({ one }) => ({
   concept: one(concepts, { fields: [lessons.conceptId], references: [concepts.id] }),
 }));
+export const courseCanonRelations = relations(courseCanon, ({ one }) => ({
+  topic: one(topics, { fields: [courseCanon.topicId], references: [topics.id] }),
+}));
 export const notesRelations = relations(notes, ({ one }) => ({
   concept: one(concepts, { fields: [notes.conceptId], references: [concepts.id] }),
 }));
@@ -236,4 +309,7 @@ export const teachAttemptsRelations = relations(teachAttempts, ({ one }) => ({
 }));
 export const widgetsRelations = relations(widgets, ({ one }) => ({
   concept: one(concepts, { fields: [widgets.conceptId], references: [concepts.id] }),
+}));
+export const mediaAssetsRelations = relations(mediaAssets, ({ one }) => ({
+  concept: one(concepts, { fields: [mediaAssets.conceptId], references: [concepts.id] }),
 }));

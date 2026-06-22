@@ -57,6 +57,34 @@
       "when": 1781030013316,
       "tag": "0007_widgets_and_usage_task",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1781728133121,
+      "tag": "0008_flippant_namorita",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1781731996290,
+      "tag": "0009_unusual_doctor_spectrum",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1781732822763,
+      "tag": "0010_workable_purple_man",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1781737281381,
+      "tag": "0011_dizzy_stick",
+      "breakpoints": true
     }
   ]
 }

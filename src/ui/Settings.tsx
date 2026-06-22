@@ -21,6 +21,8 @@ import {
 } from "../core/settings";
 import { TUTOR_MODES, type TutorMode } from "../core/generation/tutor";
 import { UsageSection } from "./UsageSection";
+import { mediaProviderRegistry, isMediaProviderEnabled, setMediaProviderEnabled } from "../core/media/registry";
+import { aiProviderRegistry, isAiProviderEnabled, setAiProviderEnabled } from "../core/ai/providers/registry";
 
 function SectionLabel({ children }: { children: ReactNode }) {
   return <div className="mb-2 text-[10.5px] font-medium uppercase tracking-wider text-ink-3">{children}</div>;
@@ -327,8 +329,109 @@ function ScenarioRow({
   );
 }
 
+/** A configurable "source" (media or AI provider): an enable toggle, a one-line
+ *  descriptor, and — for key-needing providers — an inline Keychain key control
+ *  (`provider:<id>`, write-only from JS like the route keys). */
+function SourceRow({
+  id,
+  label,
+  sub,
+  needsKey,
+  enabled,
+  onToggle,
+  divider,
+}: {
+  id: string;
+  label: string;
+  sub: string;
+  needsKey: boolean;
+  enabled: boolean;
+  onToggle: (on: boolean) => void;
+  divider: boolean;
+}) {
+  const account = `provider:${id}`;
+  const [hasKey, setHasKey] = useState<boolean | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [input, setInput] = useState("");
+
+  useEffect(() => {
+    if (!needsKey) return;
+    setHasKey(null);
+    secretStore
+      .hasApiKey(account)
+      .then(setHasKey)
+      .catch(() => setHasKey(false));
+  }, [account, needsKey]);
+
+  const save = async () => {
+    const v = input.trim();
+    if (!v) return;
+    try {
+      await secretStore.setApiKey(account, v);
+      setHasKey(true);
+      setInput("");
+      setEditing(false);
+    } catch {
+      setHasKey(false);
+    }
+  };
+
+  return (
+    <div className={divider ? "border-t border-rule" : ""}>
+      <div className="flex items-center gap-3 px-3 py-2.5">
+        <button
+          onClick={() => onToggle(!enabled)}
+          aria-pressed={enabled}
+          className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${enabled ? "bg-accent" : "bg-rule-strong"}`}
+        >
+          <span
+            className={`absolute top-0.5 h-4 w-4 rounded-full bg-surface transition-all ${enabled ? "left-[18px]" : "left-0.5"}`}
+          />
+        </button>
+        <span className="min-w-0 flex-1">
+          <span className="block text-[13px] font-medium text-ink">{label}</span>
+          <span className="block text-[11.5px] text-ink-3">{sub}</span>
+        </span>
+        {needsKey && enabled && (
+          <span className="flex shrink-0 items-center gap-1.5 text-[12px]">
+            <span className={`h-2 w-2 rounded-full ${hasKey ? "bg-accent" : "border border-rule-strong"}`} />
+            <button onClick={() => setEditing((e) => !e)} className="text-accent">
+              {hasKey ? "Edit key" : "Add key"}
+            </button>
+          </span>
+        )}
+      </div>
+      {needsKey && enabled && editing && (
+        <div className="border-t border-rule/60 bg-surface-2/40 px-3 py-3">
+          <input
+            type="password"
+            value={input}
+            autoFocus
+            spellCheck={false}
+            placeholder="API key…"
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && save()}
+            className="w-full rounded-md border border-rule-strong bg-surface px-3 py-2 font-mono text-sm text-ink outline-none focus:border-accent"
+          />
+          <button
+            onClick={save}
+            disabled={!input.trim()}
+            className="mt-2 rounded-md bg-ink px-3 py-1.5 text-[12.5px] font-medium text-surface hover:bg-accent disabled:opacity-40"
+          >
+            Save key
+          </button>
+          <p className="mt-1 text-[11px] text-ink-4">
+            Stored in your macOS Keychain (write-only — replace or remove only).
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 const TABS = [
   { id: "model", label: "Models" },
+  { id: "sources", label: "Sources" },
   { id: "cost", label: "Cost" },
   { id: "appearance", label: "Appearance" },
 ] as const;
@@ -503,6 +606,62 @@ export function Settings({
             </p>
           </section>
           </>
+          )}
+
+          {tab === "sources" && (
+            <>
+              {/* Media providers — where lessons pull real images/assets from */}
+              <section>
+                <SectionLabel>Media sources</SectionLabel>
+                <div className="overflow-hidden rounded-md border border-rule">
+                  {mediaProviderRegistry.list().map((p, i) => (
+                    <SourceRow
+                      key={p.id}
+                      id={p.id}
+                      label={p.label}
+                      sub={`${p.kinds.join(", ")} · ${p.needsKey ? "key required" : "no key needed"}`}
+                      needsKey={p.needsKey}
+                      enabled={isMediaProviderEnabled(p.id)}
+                      onToggle={(on) => {
+                        setMediaProviderEnabled(p.id, on);
+                        refresh();
+                      }}
+                      divider={i > 0}
+                    />
+                  ))}
+                </div>
+                <p className="mt-1.5 text-[11px] text-ink-4">
+                  Real images for lessons (figures, maps). Wikimedia Commons needs no key. Disabled or offline,
+                  lessons fall back to vector figures and prose.
+                </p>
+              </section>
+
+              {/* Embedding providers — light up the cross-lesson SemanticIndex */}
+              <section>
+                <SectionLabel>Embeddings</SectionLabel>
+                <div className="overflow-hidden rounded-md border border-rule">
+                  {aiProviderRegistry.embeddingProviders().map((p, i) => (
+                    <SourceRow
+                      key={p.id}
+                      id={p.id}
+                      label={p.label}
+                      sub={`Embeddings · ${p.needsKey ? "key required" : `local (${p.baseUrl ?? "localhost"})`}`}
+                      needsKey={p.needsKey}
+                      enabled={isAiProviderEnabled(p.id)}
+                      onToggle={(on) => {
+                        setAiProviderEnabled(p.id, on);
+                        refresh();
+                      }}
+                      divider={i > 0}
+                    />
+                  ))}
+                </div>
+                <p className="mt-1.5 text-[11px] text-ink-4">
+                  Optional. Enables semantic cross-lesson links (the SemanticIndex). Lessons still cohere via the
+                  course canon without it.
+                </p>
+              </section>
+            </>
           )}
 
           {tab === "cost" && (

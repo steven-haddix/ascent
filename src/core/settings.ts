@@ -132,6 +132,16 @@ export function getTaskInheritedModelId(task: AiTaskId): string {
   return inCatalog(global) ? global : route.defaultModelId;
 }
 
+const COMPLETENESS_KEY = "ascent-completeness-pass";
+/** Visual completeness pass (§3b) — gated, default OFF. Enable only if spike #5 shows the
+ *  domain budget (§3a) alone left real coverage gaps; otherwise we don't carry the 2nd pass. */
+export function isCompletenessPassEnabled(): boolean {
+  return localStorage.getItem(COMPLETENESS_KEY) === "true";
+}
+export function setCompletenessPassEnabled(on: boolean): void {
+  localStorage.setItem(COMPLETENESS_KEY, on ? "true" : "false");
+}
+
 export const THEMES = ["cream", "paper", "dark"] as const;
 export type Theme = (typeof THEMES)[number];
 

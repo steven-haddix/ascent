@@ -14,6 +14,7 @@ function row(partial: Partial<ConceptRow> & Pick<ConceptRow, "id">): ConceptRow 
     order: 0,
     state: "outline",
     remedial: false,
+    domains: [],
     createdAt: 0,
     ...partial,
   };

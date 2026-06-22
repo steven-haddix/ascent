@@ -27,6 +27,10 @@ const CONTRACT = `RULES (the runtime is unforgiving — follow exactly):
   except small helper functions/constants it uses.
 - NO imports, NO exports, NO require. \`React\` is in scope as a global — use hooks as
   \`React.useState\`, \`React.useMemo\`, etc. (do NOT destructure at top level via import).
+- \`d3\` is also in scope as a global (a lean subset: d3-scale, d3-shape, d3-array, d3-force)
+  for MATH/LAYOUT only — e.g. \`d3.scaleLinear()\`, \`d3.line()\`, \`d3.forceSimulation()\`. Render
+  with React + inline SVG as usual; never let d3 touch the DOM. Most widgets need no d3 — reach
+  for it only for genuinely novel interaction (e.g. a draggable force layout).
 - Self-contained: no fetch/XHR, no window.parent/top, no localStorage, no external assets,
   images, or fonts. All data is computed or inlined.
 - Style with inline style objects. These CSS custom properties are defined and match the app

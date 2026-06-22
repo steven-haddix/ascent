@@ -8,6 +8,16 @@
 // and MUST NOT touch @tauri-apps/* (the whole point is that it can't).
 import React from "react";
 import { createRoot, type Root } from "react-dom/client";
+import * as d3Scale from "d3-scale";
+import * as d3Shape from "d3-shape";
+import * as d3Array from "d3-array";
+import * as d3Force from "d3-force";
+
+// A lean d3 namespace for sandbox widgets: math/layout helpers (scales, shapes, arrays,
+// force). DOM stays React's job — avoids the d3-vs-React "two masters of the DOM" tension;
+// this is for genuinely novel interaction only. Bundled into every widget srcdoc, so kept
+// deliberately small (spike #4 measures the payload; trim or gate behind Sonnet if heavy).
+const d3 = { ...d3Scale, ...d3Shape, ...d3Array, ...d3Force };
 
 function post(msg: Record<string, unknown>) {
   window.parent.postMessage(msg, "*");
@@ -62,9 +72,10 @@ function render(compiled: string, tokens: Record<string, string>, colorScheme?: 
     }
     const factory = new Function(
       "React",
+      "d3",
       `"use strict";\n${compiled}\n;return typeof Widget === "function" ? Widget : null;`,
     );
-    const Widget = factory(React) as React.ComponentType | null;
+    const Widget = factory(React, d3) as React.ComponentType | null;
     if (!Widget) throw new Error("the code must define `function Widget()` at the top level");
     root ??= createRoot(document.getElementById("root")!);
     root.render(React.createElement(Boundary, null, React.createElement(Widget)));

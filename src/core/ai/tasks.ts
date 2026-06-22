@@ -8,6 +8,9 @@
 // each earns a settings knob.
 import { MODELS } from "./models";
 
+/** The class of model capability a task requires. Absent on a task = "textGeneration". */
+export type AiCapability = "textGeneration" | "embeddings" | "vision";
+
 export type AiTaskId =
   | "lesson"
   | "widget"
@@ -16,7 +19,14 @@ export type AiTaskId =
   | "quiz"
   | "micro"
   | "intake"
-  | "outline";
+  | "outline"
+  | "canon"
+  | "digest"
+  | "coherence"
+  | "revise"
+  | "embed"
+  | "director"
+  | "figure";
 
 export interface AiTask {
   id: AiTaskId;
@@ -24,6 +34,8 @@ export interface AiTask {
   /** Preferred model when the user hasn't overridden this task (validated against
    *  the task's route catalog at read time). Absent = inherit the global pick. */
   defaultModelId?: string;
+  /** Model capability required by this task. Absent = "textGeneration". */
+  requiredCapability?: AiCapability;
 }
 
 export const AI_TASKS: Record<AiTaskId, AiTask> = {
@@ -38,4 +50,16 @@ export const AI_TASKS: Record<AiTaskId, AiTask> = {
   micro: { id: "micro", label: "Inline definitions" },
   intake: { id: "intake", label: "Topic intake" },
   outline: { id: "outline", label: "Topic outlines" },
+  canon: { id: "canon", label: "Course canon", requiredCapability: "textGeneration" },
+  digest: { id: "digest", label: "Lesson digests", defaultModelId: MODELS.fast, requiredCapability: "textGeneration" },
+  coherence: { id: "coherence", label: "Coherence drift-check", defaultModelId: MODELS.fast, requiredCapability: "textGeneration" },
+  revise: { id: "revise", label: "Lesson revision", requiredCapability: "textGeneration" },
+  embed: { id: "embed", label: "Embeddings", requiredCapability: "embeddings" },
+  director: { id: "director", label: "Visual completeness", defaultModelId: MODELS.fast, requiredCapability: "textGeneration" },
+  figure: { id: "figure", label: "Figure generation", defaultModelId: MODELS.fast, requiredCapability: "textGeneration" },
 };
+
+/** Returns the capability required by a task; defaults to "textGeneration" when absent. */
+export function requiredCapabilityOf(id: AiTaskId): AiCapability {
+  return AI_TASKS[id].requiredCapability ?? "textGeneration";
+}

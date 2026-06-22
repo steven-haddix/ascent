@@ -3,97 +3,17 @@
 // then persists the complete, validated result.
 import { streamText, Output } from "ai";
 import type { AnthropicLanguageModelOptions } from "@ai-sdk/anthropic";
-import { z } from "zod";
-import { getModel } from "../ai/service";
-import { getModelId } from "../settings";
+import { getModelFor } from "../ai/service";
+import { getTaskModelId } from "../settings";
 import { dlog, since } from "../debug";
 import { lessonRepo, conceptRepo, linkRepo, type ConceptRow } from "../store/repositories";
 import { normalizeTitle } from "../store/match";
-import type { Block, SuggestedFork, SuggestedLesson, LensId, ExistingConcept } from "../types";
+import type { Block, SuggestedFork, SuggestedLesson, LensId } from "../types";
+import { LessonSchema } from "./lessonSchema";
+import { buildLessonPrompt, type LessonContext } from "./lessonPrompt";
+import { buildContinuitySection } from "./continuity";
 
-const LessonSchema = z.object({
-  subtitle: z.string().describe("one-line subtitle framing the lesson"),
-  blocks: z
-    .array(
-      z.object({
-        kind: z.enum(["paragraph", "callout", "section", "code", "table", "math", "chart", "diagram", "widget"]),
-        text: z
-          .string()
-          .optional()
-          .describe("paragraph/callout body, `code` source, LaTeX (no delimiters) for `math`, or Mermaid source for `diagram`"),
-        label: z.string().optional().describe("callout label (e.g. 'Notice') or section label"),
-        hint: z.string().optional().describe("optional one-line section hint"),
-        terms: z
-          .array(z.object({ term: z.string(), gloss: z.string() }))
-          .optional()
-          .describe("for paragraphs only: key terms appearing verbatim in `text`, each with a one-line gloss, that a curious learner could branch into"),
-        language: z
-          .string()
-          .optional()
-          .describe("for `code` blocks ONLY: the source language — 'python', 'javascript', 'typescript', 'bash', or 'json'"),
-        title: z
-          .string()
-          .optional()
-          .describe("a short, specific label (3-7 words): the title of a `code` snippet, or a caption for a `table` (and later `diagram`/`chart`)"),
-        headers: z
-          .array(z.string())
-          .optional()
-          .describe("for `table` blocks ONLY: short column headers"),
-        rows: z
-          .array(z.array(z.string()))
-          .optional()
-          .describe("for `table` blocks ONLY: rows, each an array of short cell strings aligned to `headers`"),
-        chartType: z
-          .enum(["line", "bar", "scatter", "area"])
-          .optional()
-          .describe("for `chart` blocks ONLY: how to plot the series"),
-        series: z
-          .array(
-            z.object({
-              name: z.string().optional().describe("series label (shown in the legend)"),
-              points: z
-                .array(z.object({ x: z.string(), y: z.number() }))
-                .describe('data points; x is a number written as a string (e.g. "0.5") for line/scatter/area, or a short category label for bar; y is a number'),
-            }),
-          )
-          .optional()
-          .describe("for `chart` blocks ONLY: one or more data series"),
-        xLabel: z.string().optional().describe("for `chart` blocks ONLY: x-axis label"),
-        yLabel: z.string().optional().describe("for `chart` blocks ONLY: y-axis label"),
-        widgetId: z
-          .string()
-          .optional()
-          .describe("for `widget` blocks ONLY: a short kebab-case slug unique within this lesson, e.g. 'gradient-descent-slider'"),
-        spec: z
-          .string()
-          .optional()
-          .describe(
-            "for `widget` blocks ONLY: 2-5 sentences specifying the interaction — what it shows, which variables the learner controls (with ranges), what responds and how, and the one insight it should surface. The builder sees ONLY this, so make it self-contained",
-          ),
-      }),
-    )
-    .describe(
-      "8-14 blocks: short paragraphs (2-4 sentences, one idea each), section headers that chunk the lesson into clear beats, at most one callout",
-    ),
-  suggestedLessons: z
-    .array(z.object({ handle: z.string(), reason: z.string() }))
-    .describe("next concepts that ALREADY EXIST in the tree — reference each by its handle (e.g. 'c2'); these become links, never recreate them"),
-  suggestedForks: z
-    .array(z.object({ title: z.string(), reason: z.string() }))
-    .describe("genuinely NEW sub-concepts to create, absent from the existing list — these fork a new lesson under this one"),
-});
-
-export interface LessonContext {
-  topicTitle: string;
-  path: string[];
-  summary?: string | null;
-  siblings: string[];
-  children: string[];
-  /** every other concept in this topic — lets the model link rather than re-fork */
-  existingConcepts: ExistingConcept[];
-  /** the topic's intake brief summary — tailors depth/emphasis (absent = skipped intake) */
-  briefSummary?: string | null;
-}
+export type { LessonContext } from "./lessonPrompt";
 
 /** A lesson while it's still streaming (fields fill in progressively). */
 export interface PartialLesson {
@@ -111,24 +31,14 @@ export async function generateLesson(
 ) {
   const t0 = performance.now();
   dlog("gen", "start:", concept.title);
-  const focus = ctx.summary ? `\nFocus (what this concept should cover): ${ctx.summary}` : "";
-  const siblings = ctx.siblings.length
-    ? `\nSibling concepts taught separately — do NOT re-explain these: ${ctx.siblings.join(", ")}.`
-    : "";
-  const children = ctx.children.length
-    ? `\nThis concept has sub-concepts taught in their own lessons: ${ctx.children.join(", ")}. Keep THIS lesson an orienting overview that motivates and connects them — don't fully dive into each.`
-    : "";
-  const brief = ctx.briefSummary
-    ? `\nLearner brief (tailor depth, emphasis, and examples to this): ${ctx.briefSummary}`
-    : "";
-  const existing = ctx.existingConcepts.length
-    ? `\n\nConcepts ALREADY in the learner's tree for this topic (do NOT recreate these — link to them by handle instead):\n${ctx.existingConcepts
-        .map((c) => `[${c.handle}] ${c.title}${c.summary ? ` — ${c.summary}` : ""}`)
-        .join("\n")}`
-    : "";
+
+  // Continuity (B4): a handful of fast local SQLite reads + the canon assemble a
+  // handoff section so this lesson builds on what came before. It never throws and
+  // returns "" when there's nothing to inject, so generation is unchanged today.
+  const continuity = await buildContinuitySection(concept, ctx);
 
   const result = streamText({
-    model: getModel(),
+    model: getModelFor("lesson"),
     output: Output.object({ schema: LessonSchema }),
     providerOptions: {
       anthropic: {
@@ -138,94 +48,7 @@ export async function generateLesson(
       } satisfies AnthropicLanguageModelOptions,
     },
     abortSignal: signal,
-    prompt: `You are an exceptional tutor — the kind whose explanations make a hard idea
-suddenly click — writing ONE focused lesson within a larger learning tree. Your goal is
-understanding, not coverage. Do NOT write like an encyclopedia.
-
-Topic: "${ctx.topicTitle}"
-Path: ${ctx.path.join(" > ")}
-Concept to teach: "${concept.title}"${focus}${siblings}${children}${brief}${existing}
-
-HOW TO EXPLAIN (this matters more than how much you cover):
-- Start from intuition. Before any formalism, give the learner a way to picture or feel
-  what's going on and why it matters — a plain-language framing, an analogy, or a motivating
-  question. Earn the formal definition; don't open with it.
-- Build up in small steps, one idea per paragraph. Introduce a piece, make it land, then add
-  the next. Never stack three new ideas into one dense paragraph.
-- Show, don't just state. Include at least one concrete worked example — small real numbers,
-  a tiny scenario, a case walked through step by step, or (for programming / ML / scripting
-  topics) a tight runnable code snippet — and use everyday analogies where they genuinely
-  help. The moment you introduce notation or a formula, say in words what each part means
-  and why it's there.
-- Keep the rigor. This is NOT "explain like I'm five": stay precise and correct, name things
-  properly — just make the path to understanding gentle, and unpack jargon the instant you use it.
-- Be warm and direct, like you're talking to one curious person. No filler, no throat-clearing,
-  no "in this lesson we will".
-- Do not use Markdown emphasis markers such as **bold** or *italic* in any text field. Write
-  normal prose; the app handles visual styling.
-
-FORMAT:
-- 8-14 blocks, mostly short "paragraph" blocks of 2-4 sentences (break up anything longer).
-- Use "section" headers to chunk the lesson into a few clear beats — e.g. the intuition, the
-  mechanism, a worked example, why it matters. Give each a short label and optional one-line hint.
-- Across the paragraphs, mark 2-5 key TERMS (each appearing verbatim in that paragraph's text)
-  with a one-line gloss — these become forkable branches.
-- A "callout" is RARE (at most one): reserve it for a single standout intuition or "watch out",
-  with a short label ("Intuition", "Notice", "Watch out") and a real sentence of body. Omit it if
-  nothing earns it; never label one "load-bearing". Put examples in normal paragraphs, not callouts.
-- A "code" block contains a runnable code snippet. Use it ONLY when seeing real code helps
-  understanding (programming, ML, scripting, data work). Keep snippets short and focused
-  (5-30 lines), self-contained where possible. Set \`language\` to the source language
-  ("python", "javascript", "typescript", "bash", or "json") AND set \`title\` to a short,
-  specific label (3-7 words) of what the snippet does (e.g. "Computing attention scores"),
-  so a reader understands it while it's collapsed. Python runs locally in a sandboxed
-  in-browser runtime (Pyodide), so a Python snippet may import ONLY the standard library or
-  these available packages: numpy, pandas, scipy, scikit-learn, sympy, matplotlib. Do NOT
-  import torch, tensorflow, keras, or jax — illustrate ML / deep-learning ideas from scratch
-  with numpy (or plain Python) so the snippet actually runs. One tight illustrative example
-  beats five. For non-technical subjects (history, music, biology essays, etc.), use NO code blocks.
-- A "table" block (set \`headers\` + \`rows\`) lays out a comparison or structured facts side by
-  side — comparing approaches, options, eras, properties, trade-offs. Keep cells short (a few
-  words). Prefer it over prose whenever the content is inherently tabular. Optional \`title\`
-  caption; refer to it from the surrounding text.
-- Use REAL math, never ASCII. For a standalone equation, use a "math" block with \`text\` set to
-  LaTeX (no surrounding dollar signs). For math inside a sentence, wrap it in single dollar signs
-  right in the paragraph text — e.g. "the score is $QK^T/\\sqrt{d_k}$". Always prefer rendered
-  notation over writing things like "d_k" or "Q times K transpose" in prose. Never put raw LaTeX
-  commands like \`\\approx\` or \`\\sqrt{}\` in paragraph text unless they are inside single dollar signs.
-- A "chart" block visualizes a trend or quantitative comparison: set \`chartType\` (line, bar,
-  scatter, or area), \`series\` (each an optional \`name\` and an array of {x, y} points), and
-  \`xLabel\` / \`yLabel\`. Data may be ILLUSTRATIVE — the shape of a sigmoid, a learning curve, a
-  rough comparison — kept small (a handful of points) and representative, not precise. Use a
-  chart only when a shape or comparison genuinely aids understanding; refer to it in the prose.
-- A "diagram" block renders a Mermaid diagram (\`text\` = Mermaid source) — use it to SHOW
-  structure a picture clarifies: a process or pipeline (flowchart \`graph TD\`), an interaction
-  over time (\`sequenceDiagram\`), a state machine (\`stateDiagram-v2\`), relationships
-  (\`mindmap\`), or events (\`timeline\`). Keep it focused — a handful of nodes. Use VALID Mermaid
-  syntax only. Optional \`title\` caption; refer to it in the prose.
-- A "widget" block embeds a small INTERACTIVE component that a separate builder constructs
-  from your spec while you keep writing. Use AT MOST 1-2 per lesson, and ONLY when doing beats
-  reading — the learner manipulates something and watches a response (drag a slider to reshape
-  a curve, step through an algorithm's states, toggle a parameter and see the output move).
-  Set \`widgetId\` (short kebab-case slug, unique in this lesson), \`title\` (3-7 words), and
-  \`spec\`: 2-5 sentences naming the variables the learner controls (with ranges), what responds
-  and how, and the one insight the interaction should surface. The builder sees ONLY your spec,
-  never this lesson — make it self-contained. Refer to the widget from the surrounding prose.
-  Most lessons need ZERO widgets; never use one for decoration, or for anything a chart or
-  diagram already shows.
-- Every block must have content: paragraph and callout need non-empty text, section needs a label, code needs non-empty text, widget needs widgetId + title + spec.
-
-FINISH by recommending what to explore next, split into two lists — this is how the learner grows
-the tree without duplicating it, so choose carefully:
-- suggestedLessons: for each next idea that is ALREADY covered by a concept in the existing list
-  above, reference that concept by its handle (e.g. "c2"). These render as LINKS to lessons the
-  learner already has — never recreate them as new.
-- suggestedForks: ONLY for a sub-concept genuinely ABSENT from the existing list — a true new
-  branch worth its own lesson, nested under this one. Give a short title (2-5 words) and a one-line
-  reason.
-- When unsure whether an idea already exists above, prefer a LINK (suggestedLessons) over a new
-  fork. A smaller, well-connected tree beats a sprawl of near-duplicate lessons.
-No markdown.`,
+    prompt: buildLessonPrompt(concept, ctx, { continuity }),
   });
 
   // Capture output now and pre-attach a catch: on abort we throw out of the
@@ -249,12 +72,14 @@ No markdown.`,
 
   const now = Date.now();
   const blocks = output.blocks as Block[];
-  // The Code lens is declared only when there's actually code to surface — keeps
-  // the right pane uncluttered for non-technical lessons.
+  // Code/Viz lenses are declared only when there's something to surface — keeps the
+  // right pane uncluttered for lessons that don't have it.
+  const VISUAL_KINDS = new Set<Block["kind"]>(["chart", "diagram", "timeline", "spectrum", "figure", "graph", "map", "media"]);
   const hasCode = blocks.some((b) => b.kind === "code");
-  const lenses: LensId[] = hasCode
-    ? ["notes", "quiz", "chat", "teach", "code"]
-    : ["notes", "quiz", "chat", "teach"];
+  const hasVisual = blocks.some((b) => VISUAL_KINDS.has(b.kind));
+  const lenses: LensId[] = ["notes", "quiz", "chat", "teach"];
+  if (hasCode) lenses.push("code");
+  if (hasVisual) lenses.push("viz");
   // Resolve the model's existing-concept links: it cites handles we assigned in
   // the prompt → conceptId. Fall back to a normalized-title match if it echoed a
   // title instead of a handle. Drop anything unresolved, self-referential, or a
@@ -280,7 +105,7 @@ No markdown.`,
     suggestedForks: output.suggestedForks as SuggestedFork[],
     suggestedLessons,
     lenses,
-    model: getModelId(),
+    model: getTaskModelId("lesson"),
     generatedAt: now,
   };
   await lessonRepo.upsert(row);

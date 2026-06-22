@@ -1,7 +1,10 @@
 import { useRef, useState } from "react";
 import type { ConceptRow } from "../core/store/repositories";
 import type { Block, SuggestedFork, SuggestedLesson, Term } from "../core/types";
-import { useConceptLesson, useHighlights, useAddHighlight, useRemoveHighlight } from "../core/store/hooks";
+import { useConceptLesson, useHighlights, useAddHighlight, useRemoveHighlight, useLessonRow } from "../core/store/hooks";
+import { PreviouslyBand } from "./PreviouslyBand";
+import { SelfHealBanner } from "./SelfHealBanner";
+import { refreshLesson, revertLesson, dismissStale } from "../core/generation/coherence";
 import { findExistingConcept } from "../core/store/match";
 import { buildAnchor, locateAnchor, nearestOccurrence, type Anchor } from "../core/highlights/anchor";
 import { defineInline, normalizeConcept, type MicroContext } from "../core/generation/micro";
@@ -16,6 +19,7 @@ import { RichText } from "./blocks/RichText";
 import { ChartBlock } from "./blocks/ChartBlock";
 import { DiagramBlock } from "./blocks/DiagramBlock";
 import { WidgetBlock } from "./blocks/WidgetBlock";
+import { visualRenderers } from "./blocks/registry";
 import { widgetKeysFor } from "../core/widgets/keys";
 import { NextSteps, type RelatedItem } from "./NextSteps";
 import { useLessonFind } from "./find/useLessonFind";
@@ -61,6 +65,13 @@ interface BlockRender {
 /** Render one block by kind. Visual kinds are wired in per slice; unknown or
  *  not-yet-handled kinds fall back to a paragraph. */
 function renderBlock(block: Block, index: number, r: BlockRender) {
+  // Visual registry first: additive visual kinds (timeline, spectrum, …) render through
+  // their plugin; legacy/prose kinds fall through to the switch below.
+  const visual = visualRenderers[block.kind];
+  if (visual) {
+    const Visual = visual.Component;
+    return visual.isRenderable(block) ? <Visual key={index} block={block} conceptId={r.conceptId} /> : null;
+  }
   switch (block.kind) {
     case "section":
       return <SectionHead key={index} block={block} />;
@@ -325,6 +336,7 @@ export function LessonPane({
   path,
   topicTitle,
   briefSummary,
+  referrer,
   onFork,
   onNavigate,
   onAskTutor,
@@ -336,6 +348,8 @@ export function LessonPane({
   topicTitle: string;
   /** the topic's intake brief summary — tailors lesson depth/emphasis */
   briefSummary?: string | null;
+  /** the concept the learner navigated FROM — lets a lesson bridge from where they came */
+  referrer?: string | null;
   onFork: (title: string, summary?: string) => void;
   /** navigate to an existing concept (a Link), without creating a new node */
   onNavigate: (conceptId: string) => void;
@@ -355,7 +369,11 @@ export function LessonPane({
     .filter((c) => c.id !== concept.id)
     .map((c, i) => ({ handle: `c${i + 1}`, conceptId: c.id, title: c.title, summary: c.summary }));
 
-  const { lesson, loaded, partial, generating, error, generate, stop } = useConceptLesson(concept, {
+  // "Came from" concept: referrer (explicit navigation source) preferred, parent as fallback.
+  const cameFromId = referrer ?? concept.parentId ?? null;
+  const cameFrom = useLessonRow(cameFromId);
+
+  const lessonCtx = {
     topicTitle,
     path,
     summary: concept.summary,
@@ -363,7 +381,9 @@ export function LessonPane({
     children,
     existingConcepts,
     briefSummary,
-  });
+    referrer,
+  };
+  const { lesson, loaded, partial, generating, error, generate, stop } = useConceptLesson(concept, lessonCtx);
 
   const highlightsQ = useHighlights(concept.id);
   const addHighlight = useAddHighlight(concept.id);
@@ -518,6 +538,25 @@ export function LessonPane({
 
       <h1 className="font-serif text-4xl font-normal leading-tight tracking-tight text-ink">{concept.title}</h1>
       {subtitle && <p className="mt-2 font-serif text-lg italic text-ink-2">{subtitle}</p>}
+
+      {cameFromId && cameFrom.data?.digest?.recap && (
+        <div className="mt-7">
+          <PreviouslyBand
+            fromTitle={cameFrom.data.title}
+            recap={cameFrom.data.digest.recap}
+            onGo={() => onNavigate(cameFromId)}
+          />
+        </div>
+      )}
+
+      <SelfHealBanner
+        stale={!!lesson?.stale}
+        revised={(lesson?.version ?? 1) > 1}
+        canRevert={!!lesson?.prevSnapshot}
+        onRefresh={() => void refreshLesson(concept, lessonCtx)}
+        onDismiss={() => void dismissStale(concept.id)}
+        onRevert={() => void revertLesson(concept.id)}
+      />
 
       {idle && (
         <>

@@ -7,9 +7,50 @@
 // it via useSyncExternalStore) instead of starting another.
 import { generateLesson, type LessonContext, type PartialLesson } from "./lesson";
 import { scanForWidgetJobs } from "./widgetJobs";
-import type { ConceptRow } from "../store/repositories";
+import { registerFinalizationStep, runFinalization } from "./finalization";
+import { generateDigest } from "./digest";
+import { mergeDigestIntoCanon } from "./canon";
+import { scanForMediaJobs } from "./mediaJobs";
+import { runCompletenessPass } from "./director";
+import { indexDigest } from "./semanticIndex";
+import { lessonRepo, type ConceptRow } from "../store/repositories";
 import { queryClient } from "../store/queryClient";
 import { dlog } from "../debug";
+
+// Post-stream finalization steps run in ascending `order` after a lesson is
+// persisted + published. The widget scan is the first; later waves register
+// digest/canon/visual/media steps here without touching the streaming code.
+registerFinalizationStep({
+  name: "widgets",
+  order: 10,
+  run: ({ concept, ctx, lesson }) =>
+    scanForWidgetJobs(concept, { topicTitle: ctx.topicTitle, path: ctx.path }, lesson.blocks, true),
+});
+
+registerFinalizationStep({
+  name: "digest",
+  order: 20,
+  run: async ({ concept, lesson }) => {
+    const digest = await generateDigest({ title: lesson.title, subtitle: lesson.subtitle, blocks: lesson.blocks });
+    await lessonRepo.upsert({ ...lesson, digest });
+    queryClient.setQueryData(["lesson", concept.id], (prev) => (prev ? { ...(prev as object), digest } : prev));
+    await mergeDigestIntoCanon(concept.topicId, concept.id, digest);
+    // SemanticIndex (B7): embed the digest if an embeddings provider is configured (dormant otherwise).
+    void indexDigest(concept.id, digest);
+  },
+});
+
+registerFinalizationStep({
+  name: "media",
+  order: 30,
+  run: ({ concept, lesson }) => scanForMediaJobs(concept.id, lesson.blocks),
+});
+
+registerFinalizationStep({
+  name: "completeness",
+  order: 40,
+  run: ({ concept, ctx, lesson }) => runCompletenessPass(concept, ctx, lesson),
+});
 
 export interface LessonStreamState {
   status: "streaming" | "error";
@@ -111,9 +152,6 @@ export function ensureLessonStream(concept: ConceptRow, ctx: LessonContext): voi
         },
         controller.signal,
       );
-      // Final pass over the persisted blocks: catches a widget that arrived as
-      // the very last block (excluded above while it might still be growing).
-      scanForWidgetJobs(concept, ctx, row.blocks, true);
       // generateLesson already persisted the row; publish it for an instant render
       // and refresh the tree. Runs even if no view is mounted (you navigated away).
       queryClient.setQueryData(["lesson", id], row);
@@ -122,6 +160,9 @@ export function ensureLessonStream(concept: ConceptRow, ctx: LessonContext): voi
       cleanup(id, idleTimer);
       dlog("reg", "complete:", id);
       setSnapshot(id, null); // done — observers now read the lesson from the query cache
+      // Post-stream finalization (widget scan today; digest/canon/visual/media later) —
+      // fire-and-forget, off the render critical path; per-step failures are isolated.
+      void runFinalization({ concept, ctx, lesson: row });
     } catch (err) {
       cleanup(id, idleTimer);
       const cause = abortCause.get(id);
