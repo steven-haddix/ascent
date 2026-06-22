@@ -13,6 +13,7 @@ import {
   highlightRepo,
   usageRepo,
   widgetRepo,
+  mediaRepo,
   type ConceptRow,
   type UsageTotals,
   type UsageByModel,
@@ -20,6 +21,8 @@ import {
 } from "./repositories";
 import { findExistingConcept, normalizeTitle } from "./match";
 import { startTopic } from "../generation/outline";
+import { placeForkedConcept } from "../generation/canon";
+import { markStaleForDependents } from "../generation/coherence";
 import type { LessonContext } from "../generation/lesson";
 import {
   ensureLessonStream,
@@ -98,12 +101,16 @@ export function useForkConcept() {
     }) => {
       const id = crypto.randomUUID();
       const now = Date.now();
+      // Inherit the parent's domains as an instant default so "fork then immediately generate"
+      // has a sensible visual budget; placeForkedConcept refines it via the LLM a beat later.
+      const parent = await conceptRepo.get(parentId);
       await conceptRepo.create({
         id,
         topicId,
         parentId,
         title,
         summary: summary ?? null, // a forked term's gloss / branch reason = its lesson focus
+        domains: parent?.domains ?? [],
         status: "queued",
         state: "outline",
         order: now, // append after existing siblings
@@ -111,6 +118,13 @@ export function useForkConcept() {
         remedial: remedial ?? false,
         createdAt: now,
       });
+      // Slot the new concept into the living Course Canon (spine position + prereqs) —
+      // fire-and-forget, off the critical path. No-ops if the topic has no canon yet;
+      // placeForkedConcept swallows + logs its own errors (the .catch is belt-and-suspenders).
+      void (async () => {
+        const siblings = (await conceptRepo.byTopic(topicId)).map((c) => ({ id: c.id, title: c.title }));
+        await placeForkedConcept({ topicId, concept: { id, title, summary: summary ?? null }, siblings });
+      })().catch(() => {});
       return id;
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["concepts"] }),
@@ -140,6 +154,28 @@ export function useDeleteConcept() {
       return removedIds;
     },
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["concepts"] });
+      queryClient.invalidateQueries({ queryKey: ["links"] });
+    },
+  });
+}
+
+/** Delete a whole topic and everything in it. The cascade itself (concepts, lessons,
+ *  links, canon, topic row) lives in topicRepo.remove; this hook adds the same
+ *  stream/cache hygiene as useDeleteConcept — in-flight lesson generations for the
+ *  topic's concepts are aborted (so a finishing stream can't re-upsert a row we just
+ *  deleted) and their cached lesson bodies are evicted. Host (App) fixes selection. */
+export function useDeleteTopic() {
+  return useMutation({
+    mutationFn: async (topicId: string) => {
+      const conceptIds = (await conceptRepo.byTopic(topicId)).map((c) => c.id);
+      for (const id of conceptIds) cancelLessonStream(id);
+      await topicRepo.remove(topicId);
+      for (const id of conceptIds) queryClient.removeQueries({ queryKey: ["lesson", id] });
+      return topicId;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["topics"] });
       queryClient.invalidateQueries({ queryKey: ["concepts"] });
       queryClient.invalidateQueries({ queryKey: ["links"] });
     },
@@ -181,6 +217,27 @@ export function useConceptLesson(concept: ConceptRow | null, ctx: LessonContext)
       if (concept) cancelLessonStream(concept.id);
     },
   };
+}
+
+/** Read-only fetch of a concept's persisted lesson row (shares the ["lesson", id]
+ *  cache with useConceptLesson; does NOT trigger generation). For the "Previously"
+ *  band, which needs a neighbour's digest/title. */
+export function useLessonRow(conceptId: string | null) {
+  return useQuery({
+    queryKey: ["lesson", conceptId],
+    enabled: !!conceptId,
+    queryFn: async () => (conceptId ? ((await lessonRepo.get(conceptId)) ?? null) : null),
+  });
+}
+
+/** Read-only fetch of a concept's resolved media asset (shares the ["media", c, m] cache
+ *  the resolve job publishes to). For the MediaBlock renderer; does not trigger a job. */
+export function useMedia(conceptId: string | null, mediaId: string | null) {
+  return useQuery({
+    queryKey: ["media", conceptId, mediaId],
+    enabled: !!conceptId && !!mediaId,
+    queryFn: async () => (conceptId && mediaId ? ((await mediaRepo.get(conceptId, mediaId)) ?? null) : null),
+  });
 }
 
 /** Whether a lesson is currently generating for this concept — reactive, so a
@@ -420,6 +477,10 @@ export function useTeachBack(concept: ConceptRow, ctx: TeachContext) {
         status:
           newMastery >= 0.8 ? "complete" : concept.status === "queued" ? "visited" : concept.status,
       });
+
+      // B5/B6 re-tailor: a material mastery move flags dependent lessons (those that build on
+      // this concept per the canon) for an optional refresh — flag-only, never auto-rewritten.
+      void markStaleForDependents(concept.topicId, concept.id, masteryDelta);
 
       // Eager, deduped backlink edges for gaps the grader matched to an existing
       // concept (the unique (source,target) index makes a repeat a no-op). New gaps

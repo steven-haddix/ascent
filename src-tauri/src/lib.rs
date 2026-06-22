@@ -1,5 +1,7 @@
 mod ai;
 mod db;
+mod http;
+mod media;
 mod secrets;
 mod transport;
 
@@ -46,7 +48,9 @@ pub fn run() {
             secrets::delete_secret,
             db::db_execute,
             ai::ai_request,
-            ai::ai_stream
+            ai::ai_stream,
+            media::provider_request,
+            media::provider_download
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

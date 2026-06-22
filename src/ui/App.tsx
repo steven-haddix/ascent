@@ -3,7 +3,7 @@ import { runMigrations } from "../core/store/migrate";
 import { secretStore } from "../core/secrets";
 import { getRoute } from "../core/ai/routes";
 import { getRouteId } from "../core/settings";
-import { useTopics, useConcepts, useStartTopic, useForkConcept, useDeleteConcept, queryClient } from "../core/store/hooks";
+import { useTopics, useConcepts, useStartTopic, useForkConcept, useDeleteConcept, useDeleteTopic, queryClient } from "../core/store/hooks";
 import { linkRepo } from "../core/store/repositories";
 import { findExistingConcept } from "../core/store/match";
 import type { TopicBrief } from "../core/types";
@@ -17,6 +17,15 @@ export function App() {
   const [phase, setPhase] = useState<Phase>("loading");
   const [activeTopicId, setActiveTopicId] = useState<string | null>(null);
   const [selectedConceptId, setSelectedConceptId] = useState<string | null>(null);
+
+  // The concept we were viewing before the current selection — the "referrer" a
+  // freshly-opened lesson bridges from. A ref that lags selectedConceptId by one
+  // commit: on the render where selection becomes B, this still holds A.
+  const prevConceptRef = useRef<string | null>(null);
+  const referrer = prevConceptRef.current !== selectedConceptId ? prevConceptRef.current : null;
+  useEffect(() => {
+    prevConceptRef.current = selectedConceptId;
+  }, [selectedConceptId]);
 
   useEffect(() => {
     (async () => {
@@ -34,6 +43,7 @@ export function App() {
   const startTopic = useStartTopic();
   const fork = useForkConcept();
   const deleteConcept = useDeleteConcept();
+  const deleteTopic = useDeleteTopic();
 
   // Open the most recent topic once, on first load — but never again. "New topic"
   // clears activeTopicId to show the new-topic intake; keying this effect off
@@ -113,6 +123,21 @@ export function App() {
     );
   };
 
+  const handleDeleteTopic = (topicId: string) => {
+    // Compute the fallback before the list invalidates: if we're deleting the open
+    // topic, land on the next most-recent remaining one (or the new-topic intake
+    // when none are left). Deleting a background topic leaves selection untouched.
+    const remaining = (topics.data ?? []).filter((t) => t.id !== topicId);
+    deleteTopic.mutate(topicId, {
+      onSuccess: () => {
+        if (activeTopicId !== topicId) return;
+        const next = remaining[remaining.length - 1] ?? null;
+        setActiveTopicId(next?.id ?? null);
+        setSelectedConceptId(next?.rootConceptId ?? null);
+      },
+    });
+  };
+
   if (phase === "loading") {
     return <div className="grid h-screen place-items-center bg-bg text-sm text-ink-3">Loading…</div>;
   }
@@ -129,6 +154,7 @@ export function App() {
       selectedConceptId={selectedConceptId}
       onSelectConcept={setSelectedConceptId}
       onDeleteConcept={handleDeleteConcept}
+      onDeleteTopic={handleDeleteTopic}
       onStartTopic={handleStartTopic}
       starting={startTopic.isPending}
       startError={startTopic.error ? ((startTopic.error as Error).message ?? String(startTopic.error)) : null}
@@ -137,6 +163,7 @@ export function App() {
         setSelectedConceptId(null);
       }}
       onFork={handleFork}
+      referrer={referrer}
     />
   );
 }

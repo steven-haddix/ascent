@@ -3,13 +3,14 @@
 // later swap in a reactive layer (TanStack DB) or a sync engine without UI churn.
 import { and, asc, eq, inArray, or, sql } from "drizzle-orm";
 import { db } from "./client";
-import { topics, concepts, conceptLinks, lessons, notes, chatTurns, teachAttempts, highlights, usageEvents, widgets } from "./schema";
+import { topics, concepts, conceptLinks, lessons, notes, chatTurns, teachAttempts, highlights, usageEvents, widgets, courseCanon, mediaAssets } from "./schema";
 
 export type TopicInsert = typeof topics.$inferInsert;
 export type TopicRow = typeof topics.$inferSelect;
 export type ConceptInsert = typeof concepts.$inferInsert;
 export type ConceptRow = typeof concepts.$inferSelect;
 export type LessonInsert = typeof lessons.$inferInsert;
+export type LessonRow = typeof lessons.$inferSelect;
 export type ConceptLinkInsert = typeof conceptLinks.$inferInsert;
 export type ConceptLinkRow = typeof conceptLinks.$inferSelect;
 export type NoteInsert = typeof notes.$inferInsert;
@@ -22,6 +23,10 @@ export type UsageEventInsert = typeof usageEvents.$inferInsert;
 export type UsageEventRow = typeof usageEvents.$inferSelect;
 export type WidgetInsert = typeof widgets.$inferInsert;
 export type WidgetRow = typeof widgets.$inferSelect;
+export type CourseCanonInsert = typeof courseCanon.$inferInsert;
+export type CourseCanonRow = typeof courseCanon.$inferSelect;
+export type MediaAssetInsert = typeof mediaAssets.$inferInsert;
+export type MediaAssetRow = typeof mediaAssets.$inferSelect;
 
 /** All-time usage roll-up. `hasUnknownCost` is true when any event couldn't be
  *  priced, so the UI can flag the dollar total as a lower bound. */
@@ -56,6 +61,20 @@ export const topicRepo = {
   list: () => db.select().from(topics).orderBy(asc(topics.createdAt)).all(),
   get: (id: string) => db.select().from(topics).where(eq(topics.id, id)).get(),
   create: (value: TopicInsert) => db.insert(topics).values(value).run(),
+  /** Hard-delete a whole topic and everything under it. Every concept in the tree
+   *  goes through conceptRepo.removeMany (which also drops each concept's lesson,
+   *  notes, chat, teach-backs, highlights, widgets, media, and any concept_links it
+   *  touches), then the topic's course canon, any links still keyed to the topic,
+   *  and finally the topic row. Order satisfies the FK references (dependents first,
+   *  topic last). Sequential like removeMany — fine for the local single-user store.
+   *  Callers (useDeleteTopic) abort in-flight lesson streams first. */
+  remove: async (id: string) => {
+    const conceptIds = (await conceptRepo.byTopic(id)).map((c) => c.id);
+    await conceptRepo.removeMany(conceptIds);
+    await db.delete(conceptLinks).where(eq(conceptLinks.topicId, id)).run();
+    await db.delete(courseCanon).where(eq(courseCanon.topicId, id)).run();
+    await db.delete(topics).where(eq(topics.id, id)).run();
+  },
 };
 
 export const conceptRepo = {
@@ -89,6 +108,7 @@ export const conceptRepo = {
     await db.delete(chatTurns).where(inArray(chatTurns.conceptId, ids)).run();
     await db.delete(teachAttempts).where(inArray(teachAttempts.conceptId, ids)).run();
     await db.delete(widgets).where(inArray(widgets.conceptId, ids)).run();
+    await db.delete(mediaAssets).where(inArray(mediaAssets.conceptId, ids)).run();
     await db.delete(lessons).where(inArray(lessons.conceptId, ids)).run();
     await db.delete(concepts).where(inArray(concepts.id, ids)).run();
   },
@@ -98,6 +118,37 @@ export const lessonRepo = {
   get: (conceptId: string) => db.select().from(lessons).where(eq(lessons.conceptId, conceptId)).get(),
   upsert: (value: LessonInsert) =>
     db.insert(lessons).values(value).onConflictDoUpdate({ target: lessons.conceptId, set: value }).run(),
+  /** Partial patch — used by self-healing to set stale / version / prevSnapshot without
+   *  rewriting the content columns (continuity B6). */
+  update: (conceptId: string, patch: Partial<LessonInsert>) =>
+    db.update(lessons).set(patch).where(eq(lessons.conceptId, conceptId)).run(),
+};
+
+/** The per-topic Course Canon (continuity B1). get/upsert only here; the
+ *  merge/place orchestration lives in generation/canon.ts (next task). */
+export const canonRepo = {
+  get: (topicId: string) => db.select().from(courseCanon).where(eq(courseCanon.topicId, topicId)).get(),
+  upsert: (value: CourseCanonInsert) =>
+    db.insert(courseCanon).values(value).onConflictDoUpdate({ target: courseCanon.topicId, set: value }).run(),
+};
+
+/** Provider-sourced media assets, keyed (conceptId, mediaId) — cloned from widgetRepo.
+ *  A resolve job (mediaJobs) moves a row through generating → ready/failed. */
+export const mediaRepo = {
+  get: (conceptId: string, mediaId: string) =>
+    db
+      .select()
+      .from(mediaAssets)
+      .where(and(eq(mediaAssets.conceptId, conceptId), eq(mediaAssets.mediaId, mediaId)))
+      .get(),
+  listByConcept: (conceptId: string) =>
+    db.select().from(mediaAssets).where(eq(mediaAssets.conceptId, conceptId)).all(),
+  upsert: (value: MediaAssetInsert) =>
+    db
+      .insert(mediaAssets)
+      .values(value)
+      .onConflictDoUpdate({ target: [mediaAssets.conceptId, mediaAssets.mediaId], set: value })
+      .run(),
 };
 
 /** Built widget payloads, keyed (conceptId, widgetId). Upsert is the only write

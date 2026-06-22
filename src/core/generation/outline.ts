@@ -5,6 +5,8 @@ import { z } from "zod";
 import { getModel } from "../ai/service";
 import { topicRepo, conceptRepo } from "../store/repositories";
 import { formatHistory } from "./intake";
+import { seedCanon } from "./canon";
+import { DOMAINS } from "../visuals/catalog";
 import type { TopicBrief } from "../types";
 
 const OutlineSchema = z.object({
@@ -21,8 +23,17 @@ const OutlineSchema = z.object({
       z.object({
         title: z.string().describe("short concept name, 2-5 words"),
         rationale: z.string().describe("one line on what it covers / why it matters"),
+        domains: z
+          .array(z.enum(DOMAINS))
+          .describe("1-2 subject domains for this concept (multi-tag) from the allowed set — drives which visuals its lesson reaches for"),
         children: z
-          .array(z.object({ title: z.string(), rationale: z.string() }))
+          .array(
+            z.object({
+              title: z.string(),
+              rationale: z.string(),
+              domains: z.array(z.enum(DOMAINS)).describe("1-2 subject domains for this sub-concept"),
+            }),
+          )
           .optional()
           .describe("2-4 sub-concepts, optional"),
       }),
@@ -52,7 +63,8 @@ Topic (as the learner phrased it): "${title}"${briefBlock}
 First, refine the learner's phrasing into a clean subject title (see the title field).
 Then produce 4-7 top-level concepts forming a coherent path from foundations to depth.
 For each, optionally include 2-4 sub-concepts that break it down. Keep concept titles short
-(2-5 words). Give a one-line rationale per concept. Order foundational -> advanced.`,
+(2-5 words). Give a one-line rationale per concept. Order foundational -> advanced. Tag each
+concept (and sub-concept) with 1-2 \`domains\` — the subjects it belongs to — from the allowed set.`,
   });
   return output;
 }
@@ -84,6 +96,10 @@ export async function startTopic(
     createdAt: now,
   });
 
+  // Collected flat for canon seeding (parents + children) — the rationale doubles
+  // as the concept summary the canon author reads.
+  const seedConcepts: { id: string; title: string; summary?: string | null }[] = [];
+
   let order = 0;
   for (const concept of outline) {
     const cid = crypto.randomUUID();
@@ -93,6 +109,7 @@ export async function startTopic(
       parentId: rootId,
       title: concept.title,
       summary: concept.rationale,
+      domains: concept.domains,
       status: "queued",
       state: "outline",
       order: order++,
@@ -100,14 +117,17 @@ export async function startTopic(
       remedial: false,
       createdAt: now,
     });
+    seedConcepts.push({ id: cid, title: concept.title, summary: concept.rationale });
     let childOrder = 0;
     for (const child of concept.children ?? []) {
+      const childId = crypto.randomUUID();
       await conceptRepo.create({
-        id: crypto.randomUUID(),
+        id: childId,
         topicId,
         parentId: cid,
         title: child.title,
         summary: child.rationale,
+        domains: child.domains,
         status: "queued",
         state: "outline",
         order: childOrder++,
@@ -115,7 +135,12 @@ export async function startTopic(
         remedial: false,
         createdAt: now,
       });
+      seedConcepts.push({ id: childId, title: child.title, summary: child.rationale });
     }
   }
+  // Seed the Course Canon from the fresh tree — fire-and-forget so the tree renders
+  // immediately. seedCanon swallows + logs its own failures; the .catch is belt-and-
+  // suspenders so an unhandled rejection can never surface.
+  void seedCanon({ topicId, topicTitle, brief, concepts: seedConcepts }).catch(() => {});
   return { topicId, rootConceptId: rootId };
 }

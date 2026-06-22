@@ -111,6 +111,50 @@ function EmptyPane({ eyebrow, title, hint }: { eyebrow: string; title: string; h
   );
 }
 
+/** Confirm dialog for deleting an entire topic — always a full cascade (every
+ *  concept in the tree and their lessons, notes, highlights, and chat), so unlike
+ *  the per-concept dialog there's no "keep sub-concepts" escape hatch. */
+function DeleteTopicDialog({
+  topic,
+  onCancel,
+  onConfirm,
+}: {
+  topic: TopicRow;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-ink/40 p-6" onClick={onCancel}>
+      <div
+        className="w-full max-w-sm rounded-lg border border-rule bg-surface p-5 shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="font-serif text-base text-ink">
+          Delete “<span className="font-medium">{topic.title}</span>”?
+        </div>
+        <p className="mt-2 text-[12.5px] leading-relaxed text-ink-2">
+          This permanently removes the entire topic and every concept in it — along with their
+          lessons, notes, highlights, and chat. This can’t be undone.
+        </p>
+        <div className="mt-5 flex justify-end gap-2">
+          <button
+            onClick={onCancel}
+            className="rounded-md border border-rule px-3 py-1.5 text-[12.5px] text-ink-2 hover:bg-surface-2 hover:text-ink"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onConfirm}
+            className="rounded-md bg-red-600 px-3 py-1.5 text-[12.5px] font-medium text-white hover:bg-red-700"
+          >
+            Delete topic
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function Sidebar({
   topics,
   activeTopicId,
@@ -119,6 +163,7 @@ function Sidebar({
   onSelectTopic,
   onSelectConcept,
   onDeleteConcept,
+  onDeleteTopic,
   onNewTopic,
 }: {
   topics: TopicRow[];
@@ -128,8 +173,12 @@ function Sidebar({
   onSelectTopic: (id: string) => void;
   onSelectConcept: (id: string) => void;
   onDeleteConcept: (nodeId: string, keepChildren: boolean) => void;
+  onDeleteTopic: (topicId: string) => void;
   onNewTopic: () => void;
 }) {
+  // Which topic the delete dialog is confirming (null = closed). A topic row's
+  // hover-reveal trash opens it; confirming runs onDeleteTopic in the host.
+  const [confirmTopic, setConfirmTopic] = useState<TopicRow | null>(null);
   return (
     <aside className="flex min-h-0 flex-col overflow-hidden border-r border-rule bg-surface">
       {topics.length > 0 && (
@@ -139,21 +188,47 @@ function Sidebar({
           </div>
           <div className="max-h-44 overflow-y-auto px-2 pb-2">
             {topics.map((t) => (
-              <button
+              // Row is a flex container (not a single button) so the delete control
+              // can sit beside the selectable label without nesting buttons.
+              <div
                 key={t.id}
-                onClick={() => onSelectTopic(t.id)}
-                title={t.title}
-                className={`block w-full truncate rounded-md px-2 py-1.5 text-left text-[12.5px] ${
-                  t.id === activeTopicId
-                    ? "bg-surface-2 font-medium text-ink"
-                    : "text-ink-2 hover:bg-surface-2 hover:text-ink"
+                className={`group relative flex items-center rounded-md ${
+                  t.id === activeTopicId ? "bg-surface-2" : "hover:bg-surface-2"
                 }`}
               >
-                {t.title}
-              </button>
+                <button
+                  onClick={() => onSelectTopic(t.id)}
+                  title={t.title}
+                  className={`min-w-0 flex-1 truncate px-2 py-1.5 text-left text-[12.5px] ${
+                    t.id === activeTopicId ? "font-medium text-ink" : "text-ink-2 group-hover:text-ink"
+                  }`}
+                >
+                  {t.title}
+                </button>
+                <button
+                  aria-label={`Delete topic “${t.title}”`}
+                  title="Delete topic"
+                  onClick={() => setConfirmTopic(t)}
+                  className="mr-1 grid h-5 w-5 shrink-0 place-items-center rounded text-ink-3 opacity-0 hover:bg-red-400/10 hover:text-red-600 focus:opacity-100 group-hover:opacity-100"
+                >
+                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.2">
+                    <path d="M2.5 3h7 M4.5 3V2h3v1 M3.5 3l.5 7h4l.5-7" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </button>
+              </div>
             ))}
           </div>
         </div>
+      )}
+      {confirmTopic && (
+        <DeleteTopicDialog
+          topic={confirmTopic}
+          onCancel={() => setConfirmTopic(null)}
+          onConfirm={() => {
+            onDeleteTopic(confirmTopic.id);
+            setConfirmTopic(null);
+          }}
+        />
       )}
       <div className="flex items-center justify-between px-3.5 pb-2 pt-3.5">
         <span className="text-[10.5px] font-medium uppercase tracking-wider text-ink-3">Learning tree</span>
@@ -205,11 +280,13 @@ interface AppShellProps {
   selectedConceptId: string | null;
   onSelectConcept: (id: string) => void;
   onDeleteConcept: (nodeId: string, keepChildren: boolean) => void;
+  onDeleteTopic: (topicId: string) => void;
   onStartTopic: (title: string, brief?: TopicBrief) => void;
   starting: boolean;
   startError?: string | null;
   onNewTopic: () => void;
   onFork: (title: string, summary?: string, opts?: { remedial?: boolean }) => void;
+  referrer?: string | null;
 }
 
 export function AppShell(props: AppShellProps) {
@@ -221,11 +298,13 @@ export function AppShell(props: AppShellProps) {
     selectedConceptId,
     onSelectConcept,
     onDeleteConcept,
+    onDeleteTopic,
     onStartTopic,
     starting,
     startError,
     onNewTopic,
     onFork,
+    referrer,
   } = props;
 
   const selected = concepts.find((c) => c.id === selectedConceptId) ?? null;
@@ -355,6 +434,7 @@ export function AppShell(props: AppShellProps) {
           onSelectTopic={onSelectTopic}
           onSelectConcept={onSelectConcept}
           onDeleteConcept={onDeleteConcept}
+          onDeleteTopic={onDeleteTopic}
           onNewTopic={onNewTopic}
         />
         <main className="relative min-h-0 min-w-0 bg-bg">
@@ -375,6 +455,7 @@ export function AppShell(props: AppShellProps) {
                   path={pathTo(concepts, selected.id)}
                   topicTitle={topicTitle}
                   briefSummary={briefSummary}
+                  referrer={referrer}
                   onFork={onFork}
                   onNavigate={onSelectConcept}
                   onAskTutor={(text) =>

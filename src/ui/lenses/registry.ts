@@ -4,14 +4,15 @@ import { NotesLens } from "./NotesLens";
 import { QuizLens } from "./QuizLens";
 import { TeachLens } from "./TeachLens";
 import { CodeLens } from "./CodeLens";
+import { VizLens } from "./VizLens";
 
-// Registered preview-pane lenses. `chat` is the bottom drawer (not here);
-// `viz` (v2) registers here later.
+// Registered preview-pane lenses. `chat` is the bottom drawer (not here).
 const LENSES: Partial<Record<LensId, Lens>> = {
   notes: { id: "notes", label: "Notes", icon: "✎", Renderer: NotesLens },
   quiz: { id: "quiz", label: "Quiz", icon: "?", Renderer: QuizLens },
   teach: { id: "teach", label: "Teach", icon: "◎", Renderer: TeachLens },
   code: { id: "code", label: "Code", icon: "<>", Renderer: CodeLens },
+  viz: { id: "viz", label: "Viz", icon: "◫", Renderer: VizLens },
 };
 
 export function getLens(id: LensId): Lens | undefined {

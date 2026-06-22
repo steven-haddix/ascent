@@ -34,7 +34,22 @@ export interface ChartSeries {
  *  separate cheaper agent builds the actual component into the `widgets` table
  *  (keyed conceptId + widgetId) while the lesson keeps streaming. */
 export interface Block {
-  kind: "paragraph" | "callout" | "section" | "code" | "math" | "diagram" | "table" | "chart" | "widget";
+  kind:
+    | "paragraph"
+    | "callout"
+    | "section"
+    | "code"
+    | "math"
+    | "diagram"
+    | "table"
+    | "chart"
+    | "widget"
+    | "timeline"
+    | "spectrum"
+    | "figure"
+    | "graph"
+    | "map"
+    | "media";
   /** paragraph/callout body, code source, LaTeX (for `math`), or Mermaid spec (for `diagram`) */
   text?: string;
   /** callout label (e.g. "Notice") or section label */
@@ -67,6 +82,36 @@ export interface Block {
   /** for `widget`: 2-5 sentences specifying the interaction — the builder agent
    *  sees ONLY this (plus concept context), never the lesson prose */
   spec?: string;
+  /** accessibility: a one-line text alternative for any visual block (timeline/spectrum/etc.) */
+  alt?: string;
+  /** for `timeline`: events on a time/era axis */
+  events?: { at: string; label: string; detail?: string }[];
+  /** for `timeline`: optional named lanes/tracks to group events */
+  lanes?: string[];
+  /** for `spectrum`: the continuum axis (numeric range + optional tick labels) */
+  axis?: { min: number; max: number; labels?: string[] };
+  /** for `spectrum`: items placed along the axis at position `at` (within axis min..max) */
+  items?: { label: string; at: number }[];
+  /** for `figure`: a base visual — a model-drawn vector scene (`svg`, viewBox 0 0 100 100)
+   *  or a provider-sourced image (`mediaId`, resolved by a job into media_assets) */
+  figure?: { svg?: string; mediaId?: string };
+  /** for `figure`: callout labels pointing at parts of the base visual, at 0..100 coords */
+  labels?: { text: string; at: { x: number; y: number } }[];
+  /** for `graph`: node–link nodes (model emits data, app renders with d3-force) */
+  nodes?: { id: string; label?: string; group?: string }[];
+  /** for `graph`: directed/undirected edges between node ids */
+  edges?: { from: string; to: string; label?: string }[];
+  /** for `map`: the geographic projection / basemap to render */
+  projection?: "world" | "mercator" | "albersUsa";
+  /** for `map`: marks placed on the basemap — a pin at [lon,lat] or a named region */
+  marks?: { kind: "pin" | "region"; coords?: [number, number]; region?: string; label?: string; value?: number }[];
+  /** for `media` (and provider-sourced `figure`): a slug unique within the lesson; a job
+   *  resolves the asset into the media_assets table (keyed conceptId + mediaId) */
+  mediaId?: string;
+  /** for `media`: the search query the resolve job sends to a media provider */
+  query?: string;
+  /** for `media`: what the asset is for (helps ranking + alt text); free text */
+  purpose?: string;
 }
 
 /** Lifecycle of a built widget (the `widgets` table row a `widget` block points
@@ -178,4 +223,58 @@ export interface TopicBrief {
   summary: string;
   /** the Q&A transcript */
   answers: IntakeAnswer[];
+}
+
+// --- Continuity Engine (Course Canon + Lesson Digest) ---
+
+/** A compact, structured summary of what a lesson actually established — produced
+ *  by a cheap post-stream call (NOT part of LessonSchema), stored on the lesson row
+ *  and merged back into the Course Canon (B2). */
+export interface LessonDigest {
+  /** 1-2 sentences: what the learner knows after this lesson */
+  recap: string;
+  /** analogies / mental models introduced (e.g. "loss surface as terrain") */
+  motifs: string[];
+  /** symbols/terms this lesson pinned down */
+  notation: { symbol: string; means: string }[];
+  /** questions raised but deliberately not answered here */
+  openLoops: string[];
+  /** sub-topics this lesson explicitly leaves to deeper lessons */
+  deferredTo: string[];
+  /** concepts this lesson built on (titles or handles) */
+  assumedPrereqs: string[];
+}
+
+/** A canonical symbol/term in a topic's notation registry — stable across lessons. */
+export interface CanonNotation {
+  symbol: string;
+  means: string;
+  firstIntroducedIn?: string | null;
+}
+
+/** A through-line (1-3 per topic) and the spine example that evolves across lessons. */
+export interface CanonMotif {
+  name: string;
+  description: string;
+  lastAdvancedIn?: string | null;
+}
+
+/** The narrative arc of a topic + an ordered list of its concepts (B1 spine). */
+export interface CanonSpine {
+  arc: string;
+  /** ordered concept ids along the spine */
+  order: string[];
+}
+
+/** The one-author tone/depth/pacing charter for a topic. */
+export interface CanonVoice {
+  tone: string;
+  depth: string;
+  pacing: string;
+}
+
+/** A one-step-undo snapshot of a lesson body, captured before a self-heal revision (B6). */
+export interface LessonSnapshot {
+  subtitle: string | null;
+  blocks: Block[];
 }
