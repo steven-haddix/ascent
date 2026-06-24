@@ -1,8 +1,9 @@
 // Core domain types for Ascent. Subject-agnostic — nothing here knows about ML.
 
 /** Right-pane capability modules a lesson can declare. Core lenses are always
- *  available; `code` (and later `viz`) are opt-in per lesson. */
-export type LensId = "notes" | "quiz" | "chat" | "teach" | "code" | "viz";
+ *  available; `code`/`viz` are opt-in per lesson. `resources` is data-driven — the
+ *  preview pane appends it when web-search resources exist (not declared by the generator). */
+export type LensId = "notes" | "quiz" | "chat" | "teach" | "code" | "viz" | "resources";
 
 export type ConceptStatus = "queued" | "current" | "visited" | "complete";
 /** Generation lifecycle for a concept's lesson body. */

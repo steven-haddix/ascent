@@ -27,6 +27,9 @@ export interface LessonPromptParts {
   /** Wave 2 (Visual §3a / per-kind guidance): extra guidance appended at the end of the FORMAT
    *  section (before FINISH). Empty by default → output unchanged. */
   formatAddendum?: string;
+  /** Web search (web-search spec §5): a bounded, guarded "live web findings" block inserted after
+   *  continuity so the lesson can draw on current information. Empty by default → output unchanged. */
+  grounding?: string;
 }
 
 export function buildLessonPrompt(
@@ -69,7 +72,7 @@ understanding, not coverage. Do NOT write like an encyclopedia.
 
 Topic: "${ctx.topicTitle}"
 Path: ${ctx.path.join(" > ")}
-Concept to teach: "${concept.title}"${focus}${siblings}${children}${brief}${existing}${parts.continuity ? `\n${parts.continuity}\n` : ""}
+Concept to teach: "${concept.title}"${focus}${siblings}${children}${brief}${existing}${parts.continuity ? `\n${parts.continuity}\n` : ""}${parts.grounding ? `\n${parts.grounding}\n` : ""}
 
 HOW TO EXPLAIN (this matters more than how much you cover):
 - Start from intuition. Before any formalism, give the learner a way to picture or feel

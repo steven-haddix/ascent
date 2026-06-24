@@ -5,7 +5,7 @@
 //     arrive over a Tauri Channel and are rebuilt into a streaming Response.
 // Provider-agnostic: other providers slot into getModel() later.
 import { createAnthropic } from "@ai-sdk/anthropic";
-import { wrapLanguageModel } from "ai";
+import { wrapLanguageModel, type LanguageModel, type Tool } from "ai";
 import { invoke, Channel } from "@tauri-apps/api/core";
 import { getModelId, getRouteId, getTaskModelId, getTaskRouteId } from "../settings";
 import { getRoute, type Route } from "./routes";
@@ -184,4 +184,30 @@ export function getModelFor(task: AiTaskId) {
     model: buildModel(route, modelId),
     middleware: recordingMiddleware(route.id, modelId, task),
   });
+}
+
+/** Cheap check: does the task's active route support native web search? Only the Anthropic SDK is
+ *  wired (spec §4); OpenAI-native is blocked on the openai-compatible branch in buildModel. Used by
+ *  the search registry's capability gate, so it must stay allocation-free (no model/tool built). */
+export function isNativeSearchAvailable(task: AiTaskId): boolean {
+  return getRoute(getTaskRouteId(task)).sdk === "anthropic";
+}
+
+/** The route-boundary seam for native search (spec §4): returns the route-bound model AND the
+ *  web_search server tool, so the native provider never has to reach around getModelFor to the
+ *  provider instance. The call still goes through Rust (the route fetch), so the key stays in the
+ *  Keychain. Returns null when the active route has no native search. maxUses is capped to bound
+ *  cost (search content inflates input tokens — spike §4). */
+export function getNativeSearch(task: AiTaskId): { model: LanguageModel; tool: Tool } | null {
+  const route = getRoute(getTaskRouteId(task));
+  if (route.sdk !== "anthropic") return null;
+  const fetch = makeRouteFetch(route.secretName, route.authScheme);
+  const provider = createAnthropic({ apiKey: "route-managed", fetch, baseURL: route.baseURL });
+  const modelId = getTaskModelId(task);
+  const model = wrapLanguageModel({
+    model: provider(modelId),
+    middleware: recordingMiddleware(route.id, modelId, task),
+  });
+  const tool = provider.tools.webSearch_20250305({ maxUses: 3 }) as Tool;
+  return { model, tool };
 }

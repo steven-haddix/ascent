@@ -16,6 +16,8 @@ import {
   getTaskInheritedModelId,
   getTutorMode,
   setTutorMode,
+  isWebSearchEnabled,
+  setWebSearchEnabled,
   THEMES,
   type Theme,
 } from "../core/settings";
@@ -23,6 +25,7 @@ import { TUTOR_MODES, type TutorMode } from "../core/generation/tutor";
 import { UsageSection } from "./UsageSection";
 import { mediaProviderRegistry, isMediaProviderEnabled, setMediaProviderEnabled } from "../core/media/registry";
 import { aiProviderRegistry, isAiProviderEnabled, setAiProviderEnabled } from "../core/ai/providers/registry";
+import { searchProviderRegistry, isSearchProviderEnabled, setSearchProviderEnabled } from "../core/search/registry";
 
 function SectionLabel({ children }: { children: ReactNode }) {
   return <div className="mb-2 text-[10.5px] font-medium uppercase tracking-wider text-ink-3">{children}</div>;
@@ -659,6 +662,58 @@ export function Settings({
                 <p className="mt-1.5 text-[11px] text-ink-4">
                   Optional. Enables semantic cross-lesson links (the SemanticIndex). Lessons still cohere via the
                   course canon without it.
+                </p>
+              </section>
+
+              {/* Web search — current info for lessons + a "Continue learning" links panel */}
+              <section>
+                <SectionLabel>Web search</SectionLabel>
+                <div className="overflow-hidden rounded-md border border-rule">
+                  <div className="flex items-center gap-3 px-3 py-2.5">
+                    <button
+                      onClick={() => {
+                        setWebSearchEnabled(!isWebSearchEnabled());
+                        refresh();
+                      }}
+                      aria-pressed={isWebSearchEnabled()}
+                      className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${isWebSearchEnabled() ? "bg-accent" : "bg-rule-strong"}`}
+                    >
+                      <span
+                        className={`absolute top-0.5 h-4 w-4 rounded-full bg-surface transition-all ${isWebSearchEnabled() ? "left-[18px]" : "left-0.5"}`}
+                      />
+                    </button>
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-[13px] font-medium text-ink">Enable web search</span>
+                      <span className="block text-[11.5px] text-ink-3">
+                        Grounds new lessons in current information and adds a Sources panel for continued learning.
+                      </span>
+                    </span>
+                  </div>
+                  {isWebSearchEnabled() &&
+                    searchProviderRegistry.list().map((p) => (
+                      <SourceRow
+                        key={p.id}
+                        id={p.id}
+                        label={p.label}
+                        sub={
+                          p.id === "anthropic-native"
+                            ? "Uses your Anthropic route key · web search billed per use"
+                            : `Search API · ${p.needsKey ? "key required" : "no key needed"}`
+                        }
+                        needsKey={p.needsKey}
+                        enabled={isSearchProviderEnabled(p.id)}
+                        onToggle={(on) => {
+                          setSearchProviderEnabled(p.id, on);
+                          refresh();
+                        }}
+                        divider
+                      />
+                    ))}
+                </div>
+                <p className="mt-1.5 text-[11px] text-ink-4">
+                  Runs once per concept on first generation (cached); regenerating reuses it. Anthropic web search
+                  needs no extra key but bills per search; Tavily needs a key. An explicit search provider takes
+                  precedence over Anthropic's built-in.
                 </p>
               </section>
             </>

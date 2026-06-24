@@ -3,7 +3,7 @@
 // later swap in a reactive layer (TanStack DB) or a sync engine without UI churn.
 import { and, asc, eq, inArray, or, sql } from "drizzle-orm";
 import { db } from "./client";
-import { topics, concepts, conceptLinks, lessons, notes, chatTurns, teachAttempts, highlights, usageEvents, widgets, courseCanon, mediaAssets } from "./schema";
+import { topics, concepts, conceptLinks, lessons, notes, chatTurns, teachAttempts, highlights, usageEvents, widgets, courseCanon, mediaAssets, resources } from "./schema";
 
 export type TopicInsert = typeof topics.$inferInsert;
 export type TopicRow = typeof topics.$inferSelect;
@@ -27,6 +27,8 @@ export type CourseCanonInsert = typeof courseCanon.$inferInsert;
 export type CourseCanonRow = typeof courseCanon.$inferSelect;
 export type MediaAssetInsert = typeof mediaAssets.$inferInsert;
 export type MediaAssetRow = typeof mediaAssets.$inferSelect;
+export type ResourceInsert = typeof resources.$inferInsert;
+export type ResourceRow = typeof resources.$inferSelect;
 
 /** All-time usage roll-up. `hasUnknownCost` is true when any event couldn't be
  *  priced, so the UI can flag the dollar total as a lower bound. */
@@ -109,6 +111,7 @@ export const conceptRepo = {
     await db.delete(teachAttempts).where(inArray(teachAttempts.conceptId, ids)).run();
     await db.delete(widgets).where(inArray(widgets.conceptId, ids)).run();
     await db.delete(mediaAssets).where(inArray(mediaAssets.conceptId, ids)).run();
+    await db.delete(resources).where(inArray(resources.conceptId, ids)).run();
     await db.delete(lessons).where(inArray(lessons.conceptId, ids)).run();
     await db.delete(concepts).where(inArray(concepts.id, ids)).run();
   },
@@ -149,6 +152,27 @@ export const mediaRepo = {
       .values(value)
       .onConflictDoUpdate({ target: [mediaAssets.conceptId, mediaAssets.mediaId], set: value })
       .run(),
+};
+
+/** Web-search resources for a concept (web-search spec §6). REPLACE is the only write path:
+ *  `replaceSet` deletes the concept's prior rows and inserts the new set (sequential — the proxy
+ *  has no transaction seam yet, same as conceptRepo.deleteSubtree), so stale links never accumulate.
+ *  `maxSetId` backs the "newest set wins" guard against a concurrent refresh. */
+export const resourcesRepo = {
+  listByConcept: (conceptId: string) =>
+    db.select().from(resources).where(eq(resources.conceptId, conceptId)).all(),
+  maxSetId: async (conceptId: string): Promise<number> => {
+    const row = await db
+      .select({ m: sql<number | null>`max(${resources.resourceSetId})` })
+      .from(resources)
+      .where(eq(resources.conceptId, conceptId))
+      .get();
+    return row?.m ?? 0;
+  },
+  replaceSet: async (conceptId: string, rows: ResourceInsert[]): Promise<void> => {
+    await db.delete(resources).where(eq(resources.conceptId, conceptId)).run();
+    if (rows.length) await db.insert(resources).values(rows).run();
+  },
 };
 
 /** Built widget payloads, keyed (conceptId, widgetId). Upsert is the only write

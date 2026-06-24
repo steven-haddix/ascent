@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { lessonRepo, type ConceptRow } from "../core/store/repositories";
+import { lessonRepo, resourcesRepo, type ConceptRow } from "../core/store/repositories";
 import type { LensId } from "../core/types";
+import { isLessonStreaming } from "../core/generation/lessonStreams";
+import { hasSearchCapability } from "../core/search/registry";
 import { getLens, getPreviewLenses } from "./lenses/registry";
 
 /** The right pane: tabs for the lenses the current lesson declares (Notes /
@@ -25,10 +27,20 @@ export function PreviewPane({
     queryFn: async () => (await lessonRepo.get(concept.id)) ?? null,
   });
 
+  // Resources is DATA-DRIVEN (web-search spec §7): not declared by the generator, appended here when
+  // web-search resources exist or a search is in flight. Shares the ["resources", id] cache with the lens.
+  const resourceRows = useQuery({
+    queryKey: ["resources", concept.id],
+    queryFn: async () => await resourcesRepo.listByConcept(concept.id),
+  });
+  const showResources = (resourceRows.data?.length ?? 0) > 0 || (isLessonStreaming(concept.id) && hasSearchCapability());
+
   // Notes and Teach are core (subject-agnostic) — always offered. Quiz/Code arrive
-  // from the lesson's declared lenses. Deduped, Notes first, Teach last.
+  // from the lesson's declared lenses. Resources appended when present. Deduped, Notes first, Teach last.
   const fromLesson = (lesson.data?.lenses as LensId[] | undefined) ?? [];
-  const declared = Array.from(new Set<LensId>(["notes", ...fromLesson, "teach"]));
+  const declared = Array.from(
+    new Set<LensId>(["notes", ...fromLesson, ...(showResources ? (["resources"] as LensId[]) : []), "teach"]),
+  );
   const lenses = getPreviewLenses(declared);
   const ids = lenses.map((l) => l.id).join(",");
   const [active, setActive] = useState<LensId>("notes");

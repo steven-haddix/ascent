@@ -4,13 +4,27 @@
 // is the generic sibling of ai_request/ai_stream; adding a provider needs zero Rust.
 import { invoke } from "@tauri-apps/api/core";
 
-/** Structural shape shared by media `RequestDescriptor` and `AiRequestDescriptor`. */
+/** How Rust injects the Keychain secret for a descriptor (spec §3). Absent = `bearer`, i.e. the
+ *  current behavior (Authorization: Bearer <key>), so existing media/embeddings descriptors are
+ *  unchanged. `header` sets an arbitrary header (e.g. X-Subscription-Token); `query` appends a URL
+ *  query param (e.g. ?api_key=<key>). */
+export interface ProviderAuth {
+  scheme: "bearer" | "header" | "query";
+  /** header name or query-param key (required for `header`/`query`). */
+  name?: string;
+}
+
+/** Structural shape shared by media `RequestDescriptor`, `AiRequestDescriptor`, and search. */
 export interface ProviderDescriptor {
   url: string;
   method: string;
   headers?: Record<string, string>;
   body?: string;
   secretAccount?: string;
+  /** secret injection scheme (spec §3); absent = bearer. */
+  auth?: ProviderAuth;
+  /** per-request timeout in ms (spec §3); absent = no extra timeout (only the client connect-timeout). */
+  timeoutMs?: number;
 }
 
 export interface ProviderResponse {

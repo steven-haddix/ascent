@@ -8,6 +8,17 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tauri::Manager;
 
+/// How the Keychain secret is injected (spec §3). Absent on a Descriptor = `bearer` (today's
+/// behavior), so existing media/embeddings descriptors are unchanged.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AuthSpec {
+    /// "bearer" | "header" | "query"
+    scheme: String,
+    /// header name (e.g. X-Subscription-Token) or query-param key (e.g. api_key)
+    name: Option<String>,
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Descriptor {
@@ -17,6 +28,12 @@ pub struct Descriptor {
     headers: HashMap<String, String>,
     body: Option<String>,
     secret_account: Option<String>,
+    /// secret injection scheme; absent = bearer.
+    #[serde(default)]
+    auth: Option<AuthSpec>,
+    /// per-request timeout in ms; absent = no extra timeout (only the client connect-timeout).
+    #[serde(default)]
+    timeout_ms: Option<u64>,
 }
 
 #[derive(Serialize)]
@@ -35,23 +52,70 @@ pub struct DownloadedAsset {
     height: Option<u32>,
 }
 
-/// Build a reqwest request from a descriptor. Strips any client-supplied auth header
-/// (Rust unconditionally owns auth) and injects the Keychain secret as a Bearer token.
+/// Build a reqwest request from a descriptor. Rust unconditionally owns auth: it strips any
+/// client-supplied auth header (the standard ones plus a configured custom header name) and injects
+/// the Keychain secret per the descriptor's `auth` scheme — bearer (default), an arbitrary header,
+/// or a URL query param. The key never enters JS (spec §3).
 fn build(d: &Descriptor) -> Result<reqwest::RequestBuilder, String> {
     let method = reqwest::Method::from_bytes(d.method.as_bytes())
         .map_err(|e| format!("bad method: {e}"))?;
-    let mut req = http().request(method, &d.url);
+
+    let scheme = d.auth.as_ref().map(|a| a.scheme.as_str()).unwrap_or("bearer");
+    let auth_name = d.auth.as_ref().and_then(|a| a.name.as_ref());
+
+    // Read the secret once (used by whichever scheme applies).
+    let key = match &d.secret_account {
+        Some(account) => crate::secrets::read_secret(account)?,
+        None => None,
+    };
+
+    // For the `query` scheme, append the secret to the URL (properly encoded) before building.
+    let mut url = d.url.clone();
+    if scheme == "query" {
+        if let (Some(k), Some(name)) = (key.as_ref(), auth_name) {
+            let mut parsed = reqwest::Url::parse(&url).map_err(|e| format!("bad url: {e}"))?;
+            parsed.query_pairs_mut().append_pair(name, k);
+            url = parsed.to_string();
+        }
+    }
+
+    let mut req = http().request(method, &url);
+
+    // The configured custom header name we must NOT trust from the client (avoids reqwest
+    // appending a duplicate of an injected header).
+    let custom_header_lower = if scheme == "header" {
+        auth_name.map(|n| n.to_ascii_lowercase())
+    } else {
+        None
+    };
     for (k, v) in &d.headers {
         let lower = k.to_ascii_lowercase();
         if lower == "authorization" || lower == "x-api-key" {
             continue; // never trust a client-supplied auth header
         }
+        if custom_header_lower.as_deref() == Some(lower.as_str()) {
+            continue;
+        }
         req = req.header(k, v);
     }
-    if let Some(account) = &d.secret_account {
-        if let Some(key) = crate::secrets::read_secret(account)? {
-            req = req.header("authorization", format!("Bearer {key}"));
+
+    // Inject the secret per scheme (query already folded into the URL above).
+    if let Some(k) = key.as_ref() {
+        match scheme {
+            "header" => {
+                if let Some(name) = auth_name {
+                    req = req.header(name.as_str(), k);
+                }
+            }
+            "query" => {}
+            _ => {
+                req = req.header("authorization", format!("Bearer {k}"));
+            }
         }
+    }
+
+    if let Some(ms) = d.timeout_ms {
+        req = req.timeout(std::time::Duration::from_millis(ms));
     }
     if let Some(body) = &d.body {
         req = req.body(body.clone());

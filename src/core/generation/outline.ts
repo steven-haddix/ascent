@@ -6,8 +6,15 @@ import { getModel } from "../ai/service";
 import { topicRepo, conceptRepo } from "../store/repositories";
 import { formatHistory } from "./intake";
 import { seedCanon } from "./canon";
+import { groundQuery } from "../search/grounding";
 import { DOMAINS } from "../visuals/catalog";
 import type { TopicBrief } from "../types";
+
+/** Search query for grounding a topic's outline in current info (web-search spec §5, extended to
+ *  topic generation) — biases the tree toward the field as it stands today. */
+function outlineQuery(title: string): string {
+  return `${title} — current overview, the main subtopics that structure the field, and recent developments`;
+}
 
 const OutlineSchema = z.object({
   title: z
@@ -53,12 +60,19 @@ export async function outlineTopic(
 ${brief.summary}
 ${formatHistory(brief.answers)}`
     : "";
+  // Ground the tree in current web info so its structure/subtopics reflect the field today. Waits for
+  // the search (up to GROUND_TIMEOUT_MS) then proceeds; best-effort — "" when search is off/unavailable,
+  // so topic creation is never blocked or broken by a search problem.
+  const grounding = await groundQuery(outlineQuery(title));
+  const groundingBlock = grounding
+    ? `\n\n${grounding}\nUse these current findings to make the tree reflect the field as it stands TODAY: prefer current subtopics and terminology, fold in genuinely important recent developments, and don't anchor only to older framings. Ignore anything off-topic or low-quality.`
+    : "";
   const { output } = await generateText({
     model: getModel(),
     output: Output.object({ schema: OutlineSchema }),
     prompt: `You are mapping a subject into a learning tree for a curious learner.
 
-Topic (as the learner phrased it): "${title}"${briefBlock}
+Topic (as the learner phrased it): "${title}"${briefBlock}${groundingBlock}
 
 First, refine the learner's phrasing into a clean subject title (see the title field).
 Then produce 4-7 top-level concepts forming a coherent path from foundations to depth.

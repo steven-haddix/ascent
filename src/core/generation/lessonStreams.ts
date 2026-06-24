@@ -11,6 +11,7 @@ import { registerFinalizationStep, runFinalization } from "./finalization";
 import { generateDigest } from "./digest";
 import { mergeDigestIntoCanon } from "./canon";
 import { scanForMediaJobs } from "./mediaJobs";
+import { persistResources } from "./resourceJobs";
 import { runCompletenessPass } from "./director";
 import { indexDigest } from "./semanticIndex";
 import { lessonRepo, type ConceptRow } from "../store/repositories";
@@ -46,6 +47,15 @@ registerFinalizationStep({
   run: ({ concept, lesson }) => scanForMediaJobs(concept.id, lesson.blocks),
 });
 
+// Web search (spec §5): persist the resources the pre-generation search stashed — REPLACE, off the
+// render critical path, reusing the SAME results (never a second search). No-op on a cache-hit
+// regeneration that didn't search.
+registerFinalizationStep({
+  name: "resources",
+  order: 35,
+  run: ({ concept }) => persistResources(concept.id),
+});
+
 registerFinalizationStep({
   name: "completeness",
   order: 40,
@@ -67,9 +77,12 @@ const controllers = new Map<string, AbortController>(); // abort handle per live
 const abortCause = new Map<string, "idle" | "manual">(); // why a stream was aborted
 
 // If no partial arrives for this long, treat the stream as stalled and abort it.
-// A healthy stream emits partials sub-second; the only legit gap is time-to-first-
-// token at the very start, well under this. So this only fires on a real tail-stall.
-const IDLE_TIMEOUT_MS = 40_000;
+// A healthy stream emits partials sub-second. The one legit long gap is at the very
+// start: web-search grounding (spec §5) runs BEFORE the stream and waits up to ~2 min
+// for the search, plus time-to-first-token — so the initial window must clear that
+// (GROUND_TIMEOUT_MS = 120s). After the first partial the watchdog re-arms on each
+// partial, so a real tail-stall is still caught within this window.
+const IDLE_TIMEOUT_MS = 150_000;
 
 function emit(id: string) {
   subscribers.get(id)?.forEach((fn) => fn());

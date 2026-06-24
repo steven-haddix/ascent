@@ -132,6 +132,17 @@ export function getTaskInheritedModelId(task: AiTaskId): string {
   return inCatalog(global) ? global : route.defaultModelId;
 }
 
+const WEBSEARCH_KEY = "ascent-websearch-enabled";
+/** Web search master switch (spec §8). Default ON (the user's auto-on-every-lesson choice). When
+ *  off, grounding returns "" and the resources lens is hidden — it sits ABOVE provider config, so
+ *  this single flag disables the whole feature regardless of which providers are enabled. */
+export function isWebSearchEnabled(): boolean {
+  return localStorage.getItem(WEBSEARCH_KEY) !== "false";
+}
+export function setWebSearchEnabled(on: boolean): void {
+  localStorage.setItem(WEBSEARCH_KEY, on ? "true" : "false");
+}
+
 const COMPLETENESS_KEY = "ascent-completeness-pass";
 /** Visual completeness pass (§3b) — gated, default OFF. Enable only if spike #5 shows the
  *  domain budget (§3a) alone left real coverage gaps; otherwise we don't carry the 2nd pass. */

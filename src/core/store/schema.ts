@@ -265,6 +265,37 @@ export const mediaAssets = sqliteTable(
   (t) => [primaryKey({ columns: [t.conceptId, t.mediaId] })],
 );
 
+/** Web-search resources for a concept's "Continue learning" panel (web-search spec §6). REPLACE
+ *  lifecycle: a successful search deletes the concept's prior rows and inserts the new set, so no
+ *  stale links accumulate. `resourceSetId` (monotonic per concept) enforces "newest set wins" against
+ *  a concurrent refresh; `queryHash` invalidates the cache when the concept (and thus query) changes.
+ *  Keyed (conceptId, url) — valid BECAUSE the policy is replace (a recurring URL across generations
+ *  would only collide under an archive policy, which is a deliberate future option). */
+export const resources = sqliteTable(
+  "resources",
+  {
+    conceptId: text("concept_id")
+      .notNull()
+      .references(() => concepts.id),
+    url: text("url").notNull(),
+    title: text("title").notNull(),
+    snippet: text("snippet"),
+    source: text("source"),
+    kind: text("kind", { enum: ["web", "paper", "video", "blog", "docs"] }).notNull().default("web"),
+    publishedAt: text("published_at"),
+    score: real("score"),
+    providerId: text("provider_id"),
+    query: text("query").notNull(),
+    queryHash: text("query_hash").notNull(),
+    resourceSetId: integer("resource_set_id").notNull(),
+    status: text("status", { enum: ["generating", "ready", "failed"] }).notNull().default("ready"),
+    error: text("error"),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.conceptId, t.url] })],
+);
+
 export const topicsRelations = relations(topics, ({ many }) => ({ concepts: many(concepts) }));
 export const conceptsRelations = relations(concepts, ({ one, many }) => ({
   topic: one(topics, { fields: [concepts.topicId], references: [topics.id] }),

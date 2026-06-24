@@ -20,6 +20,12 @@ use tauri::ipc::Channel;
 /// cancel this Rust future, so without it an abandoned request leaks indefinitely.
 const HEAD_TIMEOUT_SECS: u64 = 45;
 
+/// Non-streaming requests (`ai_request`) time the WHOLE response, not just headers — a non-streaming
+/// provider call (e.g. native web search) does all its work server-side before responding, so this
+/// ceiling must clear that. Generous (130s) so web-search grounding's ~2-min budget is honored
+/// end-to-end. The streaming path keeps the tighter HEAD_TIMEOUT_SECS zombie-guard above.
+const REQUEST_TIMEOUT_SECS: u64 = 130;
+
 /// Shared HTTP client: connection pooling/reuse across requests, plus a connect
 /// timeout so a hung TLS handshake fails fast instead of hanging.
 fn http() -> &'static reqwest::Client {
@@ -95,7 +101,7 @@ pub async fn ai_request(
     scheme: String,
 ) -> Result<AiResponse, String> {
     let resp = tokio::time::timeout(
-        Duration::from_secs(HEAD_TIMEOUT_SECS),
+        Duration::from_secs(REQUEST_TIMEOUT_SECS),
         build_request(&method, &url, &headers, body, &secret, &scheme)?.send(),
     )
     .await

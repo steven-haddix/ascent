@@ -85,6 +85,13 @@
       "when": 1781737281381,
       "tag": "0011_dizzy_stick",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1782327789886,
+      "tag": "0012_silly_chimera",
+      "breakpoints": true
     }
   ]
 }

@@ -1,0 +1,20 @@
+CREATE TABLE IF NOT EXISTS `resources` (
+	`concept_id` text NOT NULL,
+	`url` text NOT NULL,
+	`title` text NOT NULL,
+	`snippet` text,
+	`source` text,
+	`kind` text DEFAULT 'web' NOT NULL,
+	`published_at` text,
+	`score` real,
+	`provider_id` text,
+	`query` text NOT NULL,
+	`query_hash` text NOT NULL,
+	`resource_set_id` integer NOT NULL,
+	`status` text DEFAULT 'ready' NOT NULL,
+	`error` text,
+	`created_at` integer NOT NULL,
+	`updated_at` integer NOT NULL,
+	PRIMARY KEY(`concept_id`, `url`),
+	FOREIGN KEY (`concept_id`) REFERENCES `concepts`(`id`) ON UPDATE no action ON DELETE no action
+);
