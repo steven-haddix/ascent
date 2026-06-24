@@ -140,6 +140,15 @@ This preserves key-never-in-JS, defaults to current behavior, and future-proofs 
 their own non-Bearer providers — a capability generalization, not search scaffolding. **Native search
 needs no executor change** (it rides the AI route).
 
+**Second executor addition — a per-request timeout.** Grounding runs *before* streaming and gates the
+lesson, so a search that connects then stalls would prevent the lesson from ever starting. The shared
+client sets only a 15s *connect* timeout (`http.rs`) and `provider_request` takes no abort signal
+(`src/core/providerExecutor.ts` → `invoke("provider_request", ...)`). So `provider_request` gains an
+optional per-request timeout (reqwest `.timeout(Duration)`); the search layer passes a short bound
+(≈8s) and **fails open** to grounding `""` if it trips (§5). Independent of the auth change and equally
+small. Without this, the underlying request can outlive a JS-side give-up and become a zombie holding a
+connection — the timeout cancels it for real.
+
 Security note: the AI SDK ships first-party tool packages (`@tavily/ai-sdk`, `@exalabs/ai-sdk`,
 `@perplexity-ai/ai-sdk`) that run as `generateText` tools but read the key from `process.env` and call
 out **from JS**, bypassing the Keychain/Rust boundary. Standalone providers therefore deliberately use
@@ -221,13 +230,23 @@ Use these only where they genuinely sharpen or update the lesson; ignore anythin
 irrelevant, low-quality, or contradicting established fundamentals.
 ```
 
-The idle watchdog armed in `ensureLessonStream` covers the search too, since it runs inside
-`generateLesson` under the same `signal` — a hung search aborts into the existing recoverable-error path.
+Grounding must never prevent the lesson from starting. `provider_request` does not observe an abort
+signal today (§3), so the search layer enforces its **own** bounded timeout (≈8s) and **fails open** —
+on timeout, error, or no enabled provider, `prepareGrounding` returns `""` and generation proceeds
+ungrounded. The lesson's existing `signal` (`lesson.ts:26`) still aborts the streaming `generateText`
+as before; the new per-request Rust timeout (§3) cancels the underlying search so it can't become a
+zombie. Grounding is best-effort by construction: a search problem degrades freshness, never blocks the
+lesson.
 
 **Seam 2 — `persistResources`**, a new finalization step (order ~35, just after `media`) that
 **reuses the same results** — never re-searches — and writes `resources` rows off the render critical
-path. The hand-off from Seam 1 to Seam 2 is a per-concept module cache (the same module-registry idiom
-as `lessonStreams`/`mediaJobs`).
+path. The hand-off from Seam 1 to Seam 2 is an in-memory result cache (the same module-registry idiom
+as `lessonStreams`/`mediaJobs`), **keyed `(conceptId, queryHash, resourceSetId)`** — not by `conceptId`
+alone. That compound key is what keeps "one search feeds both modes" from quietly degrading into two
+searches, and stops a forced "refresh latest" (a new `resourceSetId`) from colliding with a first-gen
+search still in flight. `persistResources` reads the entry for *its own* attempt; a superseded entry is
+discarded, never written (§6). If the entry is already gone (evicted, or this was a cache-hit
+regeneration that never searched), `persistResources` is a no-op.
 
 **The `resources` table is itself the per-concept cache:**
 
@@ -262,7 +281,8 @@ export const resources = sqliteTable("resources", {
   providerId: text("provider_id"),
   query: text("query").notNull(),         // what produced this set
   queryHash: text("query_hash").notNull(),// cache invalidation: concept re-title → new hash → re-search
-  searchedAt: integer("searched_at").notNull(), // generation boundary
+  resourceSetId: integer("resource_set_id").notNull(), // monotonic per concept — newest set wins
+  searchedAt: integer("searched_at").notNull(), // generation boundary (wall clock; tie-break is resourceSetId)
   status: text("status", { enum: ["generating", "ready", "failed"] }).notNull().default("generating"),
   error: text("error"),
   createdAt: integer("created_at").notNull(),
@@ -273,18 +293,40 @@ export const resources = sqliteTable("resources", {
 **Policy = REPLACE.** A successful search **deletes the concept's prior rows and inserts the new set in
 one transaction** — no upsert-merge, so no orphans. *Append* is rejected (it is the staleness bug).
 *Archive* (keep prior generations for a "previously surfaced" view) is a deliberate future option;
-choosing it later forces the version into the key (`(conceptId, url, searchedAt)`), since a URL can
+choosing it later forces the version into the key (`(conceptId, url, resourceSetId)`), since a URL can
 recur across generations. v1's `(conceptId, url)` PK is valid **because** the policy is replace.
+
+**Newest set wins (the race rule).** Plain REPLACE is "last writer wins," which is wrong under
+concurrency: a "refresh latest" fired while a slow first-gen search is still running could let the older
+search finish last and clobber the newer results. So each search attempt mints a monotonically
+increasing `resourceSetId` for its concept, carried on its in-flight hand-off entry (§5) and its rows.
+The REPLACE transaction commits **only if its `resourceSetId` is the highest seen for that concept** —
+an older, slower search that lands later is discarded, never written. A forced refresh also supersedes
+the in-flight hand-off entry for that concept. This is what turns REPLACE from racy "last writer wins"
+into correct "newest set wins."
 
 ## 7. Surfaces
 
 **Grounding** — entirely the `grounding` prompt seam (§5). No schema change, no new block kind.
 
-**Resources** — a **`resources` lens** ("Continue learning") in the right preview pane, on the same
-conditional model as the code/viz lenses (surfaced when `hasSearchCapability()` and either a search is
-in flight for the concept or it has ≥1 resource row). Reads the `resources` rows, renders them
-**grouped by `kind`** (Papers · Videos · Blogs · Docs · Web), each card showing title, source domain,
-date, snippet, and an open-externally affordance. Lens states:
+**Resources** — a **`resources` lens** ("Continue learning") in the right preview pane. It is *not* a
+generator-declared lens like `code`/`viz` (those are written into `lesson.lenses` at generation time
+because the lesson's own blocks reveal them). Resources are **data-driven and async** — they may not
+exist when the lesson row is persisted (first-gen writes them post-stream), so the lesson generator
+cannot declare the lens. The render model changes accordingly, and there is already a precedent:
+`PreviewPane` composes `["notes", ...lesson.lenses, "teach"]` (`PreviewPane.tsx:30-32`) — it already
+appends lenses the generator never declared. Resources follows that exact mechanism:
+
+- add `"resources"` to `LensId` (`src/core/types.ts:5`) and register `ResourcesLens` in
+  `src/ui/lenses/registry.ts`;
+- in `PreviewPane`, append `"resources"` to the composed `declared` list from a **live** query
+  (`useQuery(["resources", conceptId])`) — present when rows exist *or* a search is in flight — **never**
+  from `lesson.lenses`. The existing `useEffect` that keeps `active` valid as lenses arrive already
+  handles a tab appearing late.
+
+The lens reads the `resources` rows and renders them **grouped by `kind`** (Papers · Videos · Blogs ·
+Docs · Web), each card showing title, source domain, date, snippet, and an open-externally affordance.
+Lens states:
 
 - **searching (skeleton)** — derived from the *live* generation/search state (a generation is in
   flight for this concept, or the per-concept hand-off cache holds pending results), not a row status.
@@ -302,8 +344,10 @@ A "Refresh latest" button forces re-search → REPLACE.
   search, lens hidden. Sits above provider config.
 - **Provider enable + keys** — a "Web search" section mirroring the media/embeddings provider UIs:
   toggle providers (localStorage `ascent-search-providers`), set keys write-only → Keychain
-  `provider:<id>`. Native (Anthropic) shows as available with **no key** whenever the Anthropic route
-  is active.
+  `provider:<id>`. Native (Anthropic) needs **no separate search key**, but it is *not* free or keyless:
+  it reuses the active Anthropic route's API key and bills the web-search tool per use. Label it in
+  Settings as **"Uses your Anthropic route key"** and show it as unavailable when no Anthropic route key
+  is set — so "no key" is never misread as truly free.
 - **Per-task model** — the native search-only call routes through `getModelFor("websearch")`, pinnable
   to Haiku via the existing per-task knobs.
 - **Resolver** (`getSearcherFor`): first enabled standalone provider wins; else native; else dormant.
@@ -329,14 +373,17 @@ relevance/injection-classifier pass.
 **Ship**
 - `src/core/search/{types,registry,resolve,grounding}.ts` + `hasSearchCapability()` (media-style; not
   in `AiCapability`)
-- Rust auth generalization (descriptor `auth`: bearer | header | query) in the generic executor
+- Rust executor: auth generalization (descriptor `auth`: bearer | header | query) **and** an optional
+  per-request timeout — both small, backward-compatible additions to the generic executor
 - Providers: **native Anthropic** (`anthropicNative.ts`, spike-gated) as keyless default + **one
   reference standalone — Tavily** (Bearer auth, returns content snippets well-suited to grounding;
   proves the abstraction the way the OpenRouter example route proves the route seam)
 - `prepareGrounding` + the grounding seam; `persistResources` step + `resources` table (REPLACE policy,
   provenance columns)
-- Resources lens (kind-grouped, open-externally); Settings (kill-switch + providers + native-when-active);
-  `websearch` task for native-call model routing
+- Resources lens — `"resources"` added to `LensId`, `ResourcesLens` registered, appended dynamically in
+  `PreviewPane` from a live resource query (kind-grouped, open-externally); Settings (kill-switch +
+  providers + native-when-active, labelled "uses Anthropic route key"); `websearch` task for
+  native-call model routing
 - **Spike #1 (gates the spec):** native search-only call returns usable `{title,url,snippet}[]` via
   `webSearch_20250305` + structured output + forced `toolChoice` — confirm snippet quality + per-call cost
 
