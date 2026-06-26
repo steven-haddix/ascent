@@ -348,7 +348,7 @@ export function LessonPane({
   topicTitle: string;
   /** the topic's intake brief summary — tailors lesson depth/emphasis */
   briefSummary?: string | null;
-  /** the concept the learner navigated FROM — lets a lesson bridge from where they came */
+  /** the concept the learner navigated FROM; generation filters this before bridging */
   referrer?: string | null;
   onFork: (title: string, summary?: string) => void;
   /** navigate to an existing concept (a Link), without creating a new node */
@@ -369,8 +369,9 @@ export function LessonPane({
     .filter((c) => c.id !== concept.id)
     .map((c, i) => ({ handle: `c${i + 1}`, conceptId: c.id, title: c.title, summary: c.summary }));
 
-  // "Came from" concept: referrer (explicit navigation source) preferred, parent as fallback.
-  const cameFromId = referrer ?? concept.parentId ?? null;
+  // "Previously" is organizational context, not browser-like navigation history:
+  // show the parent lesson when it exists, never an arbitrary last-clicked concept.
+  const cameFromId = concept.parentId ?? null;
   const cameFrom = useLessonRow(cameFromId);
 
   const lessonCtx = {

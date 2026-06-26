@@ -18,9 +18,8 @@ export function App() {
   const [activeTopicId, setActiveTopicId] = useState<string | null>(null);
   const [selectedConceptId, setSelectedConceptId] = useState<string | null>(null);
 
-  // The concept we were viewing before the current selection — the "referrer" a
-  // freshly-opened lesson bridges from. A ref that lags selectedConceptId by one
-  // commit: on the render where selection becomes B, this still holds A.
+  // The concept we were viewing before the current selection. Generation treats this
+  // as navigation history only; continuity filters it before using it as prior context.
   const prevConceptRef = useRef<string | null>(null);
   const referrer = prevConceptRef.current !== selectedConceptId ? prevConceptRef.current : null;
   useEffect(() => {

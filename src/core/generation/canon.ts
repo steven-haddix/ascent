@@ -72,6 +72,10 @@ export async function seedCanon(input: {
   topicTitle: string;
   brief?: TopicBrief | null;
   concepts: { id: string; title: string; summary?: string | null }[];
+  /** the topic root concept — front-loaded onto the spine so it has a real
+   *  organizational position (the overview every other lesson follows). Without it the
+   *  root has no spine index, and continuity has no "you are the start" signal. */
+  rootConceptId?: string;
 }): Promise<void> {
   try {
     // Assign each concept a stable handle (c1, c2, …) the model can cite — the same
@@ -118,6 +122,9 @@ Produce the canon:
 
     // Resolve handles → ids. Drop any handle the model invented (filter Boolean).
     const order = output.order.map((h) => map[h]).filter(Boolean);
+    // The root is the topic overview — it opens the spine, ahead of every concept it
+    // introduces. Force it to the front (the model never sees it as a handle).
+    if (input.rootConceptId && !order.includes(input.rootConceptId)) order.unshift(input.rootConceptId);
     const prereqs: Record<string, string[]> = {};
     for (const p of output.prereqs) {
       const conceptId = map[p.concept];

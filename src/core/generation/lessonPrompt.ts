@@ -15,8 +15,8 @@ export interface LessonContext {
   existingConcepts: ExistingConcept[];
   /** the topic's intake brief summary — tailors depth/emphasis (absent = skipped intake) */
   briefSummary?: string | null;
-  /** the concept the learner navigated FROM (often the parent, but also sibling→sibling
-   *  or link-following) — lets a lesson bridge from where they came. null on first load. */
+  /** the concept the learner navigated FROM. Continuity treats this as navigation
+   *  history and only bridges when it is also organizationally upstream. */
   referrer?: string | null;
 }
 

@@ -155,6 +155,6 @@ export async function startTopic(
   // Seed the Course Canon from the fresh tree — fire-and-forget so the tree renders
   // immediately. seedCanon swallows + logs its own failures; the .catch is belt-and-
   // suspenders so an unhandled rejection can never surface.
-  void seedCanon({ topicId, topicTitle, brief, concepts: seedConcepts }).catch(() => {});
+  void seedCanon({ topicId, topicTitle, brief, concepts: seedConcepts, rootConceptId: rootId }).catch(() => {});
   return { topicId, rootConceptId: rootId };
 }
