@@ -30,7 +30,7 @@ export interface VisualRendererDefinition {
   isRenderable: (b: Block) => boolean;
   /** conceptId is passed for job-backed kinds (media) that join an async-resolved row;
    *  inline kinds simply ignore it. */
-  Component: ComponentType<{ block: Block; conceptId?: string }>;
+  Component: ComponentType<{ block: Block; conceptId?: string; presentation?: "inline" | "gallery" }>;
 }
 
 export const visualRenderers: Partial<Record<Block["kind"], VisualRendererDefinition>> = {

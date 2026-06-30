@@ -6,6 +6,7 @@ import {
   topicRepo,
   conceptRepo,
   lessonRepo,
+  lessonDraftRepo,
   linkRepo,
   chatRepo,
   noteRepo,
@@ -27,6 +28,7 @@ import type { LessonContext } from "../generation/lesson";
 import {
   ensureLessonStream,
   cancelLessonStream,
+  discardLessonDraft,
   getLessonStreamSnapshot,
   subscribeLessonStream,
 } from "../generation/lessonStreams";
@@ -150,7 +152,10 @@ export function useDeleteConcept() {
       for (const id of removedIds) cancelLessonStream(id);
       if (reparent) await conceptRepo.reparent(reparent.childIds, reparent.newParentId);
       await conceptRepo.removeMany(removedIds);
-      for (const id of removedIds) queryClient.removeQueries({ queryKey: ["lesson", id] });
+      for (const id of removedIds) {
+        queryClient.removeQueries({ queryKey: ["lesson", id] });
+        queryClient.removeQueries({ queryKey: ["lesson-draft", id] });
+      }
       return removedIds;
     },
     onSuccess: () => {
@@ -171,7 +176,10 @@ export function useDeleteTopic() {
       const conceptIds = (await conceptRepo.byTopic(topicId)).map((c) => c.id);
       for (const id of conceptIds) cancelLessonStream(id);
       await topicRepo.remove(topicId);
-      for (const id of conceptIds) queryClient.removeQueries({ queryKey: ["lesson", id] });
+      for (const id of conceptIds) {
+        queryClient.removeQueries({ queryKey: ["lesson", id] });
+        queryClient.removeQueries({ queryKey: ["lesson-draft", id] });
+      }
       return topicId;
     },
     onSuccess: () => {
@@ -194,6 +202,11 @@ export function useConceptLesson(concept: ConceptRow | null, ctx: LessonContext)
     queryFn: async () => (await lessonRepo.get(concept!.id)) ?? null,
     enabled: !!concept,
   });
+  const draft = useQuery({
+    queryKey: ["lesson-draft", concept?.id],
+    queryFn: async () => (await lessonDraftRepo.get(concept!.id)) ?? null,
+    enabled: !!concept,
+  });
 
   const id = concept?.id ?? "";
   const subscribe = useCallback((cb: () => void) => subscribeLessonStream(id, cb), [id]);
@@ -204,14 +217,37 @@ export function useConceptLesson(concept: ConceptRow | null, ctx: LessonContext)
   // starts the stream; the registry dedupes, so a double click or returning mid-stream
   // is a no-op. `loaded` lets the view distinguish "no lesson yet" from "still looking
   // it up," so the idle CTA never flashes before a persisted lesson resolves on return.
+  const generating = stream?.status === "streaming";
+  const persistedDraft = draft.data ?? null;
+  const partial =
+    stream?.partial ??
+    (persistedDraft
+      ? { subtitle: persistedDraft.subtitle ?? undefined, blocks: persistedDraft.blocks }
+      : null);
+  const recoverable = !generating && !!persistedDraft;
+  const error =
+    stream?.status === "error"
+      ? stream.error
+      : recoverable
+        ? persistedDraft.error ?? "The app closed before this lesson finished."
+        : null;
+
   return {
     lesson: lesson.data ?? null,
-    loaded: lesson.isFetched,
-    partial: stream?.status === "streaming" ? stream.partial : null,
-    generating: stream?.status === "streaming",
-    error: stream?.status === "error" ? stream.error : null,
+    loaded: lesson.isFetched && draft.isFetched,
+    partial,
+    generating,
+    recovering: recoverable,
+    autoRetrying: !!stream?.autoRetrying,
+    error,
     generate: () => {
       if (concept) ensureLessonStream(concept, ctx);
+    },
+    restart: () => {
+      if (concept) ensureLessonStream(concept, ctx, { restart: true });
+    },
+    discardDraft: () => {
+      if (concept) void discardLessonDraft(concept.id);
     },
     stop: () => {
       if (concept) cancelLessonStream(concept.id);

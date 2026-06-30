@@ -24,7 +24,7 @@ function VizItem({ block, conceptId }: { block: Block; conceptId: string }) {
   const def = visualRenderers[block.kind];
   if (def) {
     const Component = def.Component;
-    return def.isRenderable(block) ? <Component block={block} conceptId={conceptId} /> : null;
+    return def.isRenderable(block) ? <Component block={block} conceptId={conceptId} presentation="gallery" /> : null;
   }
   if (block.kind === "chart") return <ChartBlock block={block} />;
   if (block.kind === "diagram") return <DiagramBlock block={block} />;

@@ -15,9 +15,11 @@ import { scanForGeneratedImageJobs } from "./generatedImageJobs";
 import { persistResources } from "./resourceJobs";
 import { runVisualAuditPass } from "./director";
 import { indexDigest } from "./semanticIndex";
-import { lessonRepo, type ConceptRow } from "../store/repositories";
+import { lessonDraftRepo, lessonRepo, type ConceptRow, type LessonDraftRow } from "../store/repositories";
 import { queryClient } from "../store/queryClient";
 import { dlog } from "../debug";
+import { getTaskModelId } from "../settings";
+import { checkpointFromPartial, classifyLessonFailure, type LessonCheckpoint } from "./lessonRecovery";
 
 // Post-stream finalization steps run in ascending `order` after a lesson is
 // persisted + published. The widget scan is the first; later waves register
@@ -73,6 +75,7 @@ export interface LessonStreamState {
   status: "streaming" | "error";
   partial: PartialLesson | null;
   error: string | null;
+  autoRetrying?: boolean;
 }
 
 // Per-concept snapshots, replaced only on change, so useSyncExternalStore sees a
@@ -90,6 +93,7 @@ const abortCause = new Map<string, "idle" | "manual">(); // why a stream was abo
 // (GROUND_TIMEOUT_MS = 120s). After the first partial the watchdog re-arms on each
 // partial, so a real tail-stall is still caught within this window.
 const IDLE_TIMEOUT_MS = 150_000;
+const MAX_AUTOMATIC_RECOVERIES = 1;
 
 function emit(id: string) {
   subscribers.get(id)?.forEach((fn) => fn());
@@ -130,12 +134,68 @@ function cleanup(id: string, idleTimer?: ReturnType<typeof setTimeout>) {
   controllers.delete(id);
 }
 
+function draftPartial(draft: LessonDraftRow): PartialLesson {
+  return { subtitle: draft.subtitle ?? undefined, blocks: draft.blocks };
+}
+
+function publishDraft(draft: LessonDraftRow | null) {
+  queryClient.setQueryData(["lesson-draft", draft?.conceptId ?? ""], draft);
+}
+
+function checkpointWithFloor(partial: PartialLesson | null, draft: LessonDraftRow): LessonCheckpoint {
+  if (!partial) {
+    return { subtitle: draft.subtitle, blocks: draft.blocks, discardedBlock: draft.discardedBlock };
+  }
+  const next = checkpointFromPartial(partial);
+  const blocks = next.blocks.length >= draft.blocks.length ? next.blocks : draft.blocks;
+  return {
+    subtitle: next.subtitle ?? draft.subtitle,
+    blocks,
+    discardedBlock: partial.blocks?.[blocks.length] ?? null,
+  };
+}
+
+async function saveDraft(draft: LessonDraftRow): Promise<void> {
+  await lessonDraftRepo.upsert(draft);
+  publishDraft(draft);
+}
+
+function newDraft(conceptId: string): LessonDraftRow {
+  const now = Date.now();
+  return {
+    conceptId,
+    generationId: crypto.randomUUID(),
+    status: "streaming",
+    subtitle: null,
+    blocks: [],
+    discardedBlock: null,
+    prompt: null,
+    failureKind: null,
+    error: null,
+    recoveryHint: null,
+    finishReason: null,
+    attempts: 0,
+    model: getTaskModelId("lesson"),
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+export interface EnsureLessonStreamOptions {
+  /** Discard any recoverable draft and begin a fresh generation. */
+  restart?: boolean;
+}
+
 /** Start generating this concept's lesson, or no-op if one is already streaming
  *  (the dedup that prevents the duplicate-on-return bug). Also serves retry and
  *  regenerate: generateLesson upserts, so a re-run cleanly overwrites. An idle
  *  watchdog aborts a stalled provider connection so it becomes a recoverable error
  *  instead of a forever "streaming…". */
-export function ensureLessonStream(concept: ConceptRow, ctx: LessonContext): void {
+export function ensureLessonStream(
+  concept: ConceptRow,
+  ctx: LessonContext,
+  options: EnsureLessonStreamOptions = {},
+): void {
   const id = concept.id;
   if (running.has(id)) {
     dlog("reg", "dedup — already generating", id);
@@ -143,62 +203,153 @@ export function ensureLessonStream(concept: ConceptRow, ctx: LessonContext): voi
   }
   dlog("reg", "ensure →", concept.title);
   running.add(id);
-  const controller = new AbortController();
-  controllers.set(id, controller);
   abortCause.delete(id);
   setSnapshot(id, { status: "streaming", partial: null, error: null });
 
   void (async () => {
     let idleTimer: ReturnType<typeof setTimeout> | undefined;
-    const armWatchdog = () => {
-      if (idleTimer) clearTimeout(idleTimer);
-      idleTimer = setTimeout(() => {
-        dlog("reg", `idle ${IDLE_TIMEOUT_MS}ms — aborting stalled stream`, id);
-        abortCause.set(id, "idle");
-        controller.abort();
-      }, IDLE_TIMEOUT_MS);
-    };
     try {
-      armWatchdog();
-      const row = await generateLesson(
-        concept,
-        ctx,
-        (partial) => {
-          armWatchdog(); // each partial proves the stream is alive — reset the timer
-          setSnapshot(id, { status: "streaming", partial, error: null });
-          // Kick builds for settled widget placeholders WHILE the lesson keeps
-          // streaming — the cheaper builder agent works in parallel with the prose.
-          scanForWidgetJobs(concept, ctx, partial.blocks, false);
-        },
-        controller.signal,
-      );
-      // generateLesson already persisted the row; publish it for an instant render
-      // and refresh the tree. Runs even if no view is mounted (you navigated away).
-      queryClient.setQueryData(["lesson", id], row);
-      queryClient.invalidateQueries({ queryKey: ["concepts"] });
-      queryClient.invalidateQueries({ queryKey: ["links"] }); // eager edges created during generation
-      cleanup(id, idleTimer);
-      dlog("reg", "complete:", id);
-      setSnapshot(id, null); // done — observers now read the lesson from the query cache
-      // Post-stream finalization (widget scan today; digest/canon/visual/media later) —
-      // fire-and-forget, off the render critical path; per-step failures are isolated.
-      void runFinalization({ concept, ctx, lesson: row });
+      if (options.restart) {
+        await lessonDraftRepo.remove(id);
+        queryClient.setQueryData(["lesson-draft", id], null);
+      }
+      let draft = (await lessonDraftRepo.get(id)) ?? newDraft(id);
+      await saveDraft(draft);
+      setSnapshot(id, { status: "streaming", partial: draftPartial(draft), error: null });
+
+      let automaticRecoveries = 0;
+      for (;;) {
+        const controller = new AbortController();
+        controllers.set(id, controller);
+        abortCause.delete(id);
+        let latestPartial: PartialLesson | null = null;
+        draft = {
+          ...draft,
+          status: "streaming",
+          attempts: draft.attempts + 1,
+          error: null,
+          updatedAt: Date.now(),
+        };
+        await saveDraft(draft);
+
+        const armWatchdog = () => {
+          if (idleTimer) clearTimeout(idleTimer);
+          idleTimer = setTimeout(() => {
+            dlog("reg", `idle ${IDLE_TIMEOUT_MS}ms — aborting stalled stream`, id);
+            abortCause.set(id, "idle");
+            controller.abort();
+          }, IDLE_TIMEOUT_MS);
+        };
+
+        try {
+          armWatchdog();
+          const isRecovery = !!(draft.prompt || draft.blocks.length || draft.recoveryHint);
+          const row = await generateLesson(
+            concept,
+            ctx,
+            async (partial) => {
+              latestPartial = partial;
+              armWatchdog();
+              setSnapshot(id, { status: "streaming", partial, error: null, autoRetrying: automaticRecoveries > 0 });
+              scanForWidgetJobs(concept, ctx, partial.blocks, false);
+
+              const checkpoint = checkpointWithFloor(partial, draft);
+              if (checkpoint.blocks.length > draft.blocks.length || checkpoint.subtitle !== draft.subtitle) {
+                draft = {
+                  ...draft,
+                  subtitle: checkpoint.subtitle,
+                  blocks: checkpoint.blocks,
+                  discardedBlock: null,
+                  updatedAt: Date.now(),
+                };
+                await saveDraft(draft);
+              }
+            },
+            controller.signal,
+            {
+              recovery: isRecovery
+                ? {
+                    checkpoint: {
+                      subtitle: draft.subtitle,
+                      blocks: draft.blocks,
+                      discardedBlock: draft.discardedBlock,
+                    },
+                    recoveryHint: draft.recoveryHint,
+                    originalPrompt: draft.prompt,
+                  }
+                : undefined,
+              onPrepared: async (prompt) => {
+                if (draft.prompt === prompt) return;
+                draft = { ...draft, prompt, updatedAt: Date.now() };
+                await saveDraft(draft);
+              },
+            },
+          );
+
+          if (idleTimer) clearTimeout(idleTimer);
+          await lessonDraftRepo.remove(id);
+          queryClient.setQueryData(["lesson-draft", id], null);
+          queryClient.setQueryData(["lesson", id], row);
+          queryClient.invalidateQueries({ queryKey: ["concepts"] });
+          queryClient.invalidateQueries({ queryKey: ["links"] });
+          cleanup(id);
+          dlog("reg", "complete:", id);
+          setSnapshot(id, null);
+          void runFinalization({ concept, ctx, lesson: row });
+          return;
+        } catch (err) {
+          if (idleTimer) clearTimeout(idleTimer);
+          const cause = abortCause.get(id);
+          abortCause.delete(id);
+          const failure = classifyLessonFailure(err, cause);
+          const checkpoint = checkpointWithFloor(latestPartial, draft);
+          draft = {
+            ...draft,
+            status: cause === "manual" ? "paused" : "failed",
+            subtitle: checkpoint.subtitle,
+            blocks: checkpoint.blocks,
+            discardedBlock: checkpoint.discardedBlock,
+            failureKind: failure.kind,
+            error: failure.error,
+            recoveryHint: failure.recoveryHint,
+            finishReason: failure.finishReason,
+            updatedAt: Date.now(),
+          };
+          await saveDraft(draft);
+          dlog("reg", "error:", cause ?? failure.kind, "—", failure.error);
+
+          if (cause !== "manual" && automaticRecoveries < MAX_AUTOMATIC_RECOVERIES) {
+            automaticRecoveries += 1;
+            dlog("reg", "automatic continuation →", id, `(${draft.blocks.length} saved blocks)`);
+            setSnapshot(id, {
+              status: "streaming",
+              partial: draftPartial(draft),
+              error: null,
+              autoRetrying: true,
+            });
+            continue;
+          }
+
+          cleanup(id);
+          setSnapshot(id, { status: "error", partial: draftPartial(draft), error: failure.error });
+          return;
+        }
+      }
     } catch (err) {
       cleanup(id, idleTimer);
-      const cause = abortCause.get(id);
-      abortCause.delete(id);
-      const error =
-        cause === "idle"
-          ? "The lesson stalled — the provider stopped responding before finishing. Retry to pick it back up."
-          : cause === "manual"
-            ? "Generation stopped."
-            : err instanceof Error
-              ? err.message
-              : String(err);
-      dlog("reg", "error:", cause ?? "exception", "—", error);
+      const error = err instanceof Error ? err.message : String(err);
+      dlog("reg", "recovery orchestration failed:", error);
       setSnapshot(id, { status: "error", partial: null, error });
     }
   })();
+}
+
+/** Remove the recoverable draft without touching the last completed lesson. */
+export async function discardLessonDraft(id: string): Promise<void> {
+  if (running.has(id)) return;
+  await lessonDraftRepo.remove(id);
+  queryClient.setQueryData(["lesson-draft", id], null);
+  setSnapshot(id, null);
 }
 
 /** Stop an in-flight generation (the Stop button). Aborts the stream; the catch

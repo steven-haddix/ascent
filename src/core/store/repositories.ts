@@ -3,7 +3,7 @@
 // later swap in a reactive layer (TanStack DB) or a sync engine without UI churn.
 import { and, asc, eq, inArray, or, sql } from "drizzle-orm";
 import { db } from "./client";
-import { topics, concepts, conceptLinks, lessons, notes, chatTurns, teachAttempts, highlights, usageEvents, widgets, courseCanon, mediaAssets, resources } from "./schema";
+import { topics, concepts, conceptLinks, lessons, lessonDrafts, notes, chatTurns, teachAttempts, highlights, usageEvents, widgets, courseCanon, mediaAssets, resources } from "./schema";
 
 export type TopicInsert = typeof topics.$inferInsert;
 export type TopicRow = typeof topics.$inferSelect;
@@ -11,6 +11,8 @@ export type ConceptInsert = typeof concepts.$inferInsert;
 export type ConceptRow = typeof concepts.$inferSelect;
 export type LessonInsert = typeof lessons.$inferInsert;
 export type LessonRow = typeof lessons.$inferSelect;
+export type LessonDraftInsert = typeof lessonDrafts.$inferInsert;
+export type LessonDraftRow = typeof lessonDrafts.$inferSelect;
 export type ConceptLinkInsert = typeof conceptLinks.$inferInsert;
 export type ConceptLinkRow = typeof conceptLinks.$inferSelect;
 export type NoteInsert = typeof notes.$inferInsert;
@@ -112,6 +114,7 @@ export const conceptRepo = {
     await db.delete(widgets).where(inArray(widgets.conceptId, ids)).run();
     await db.delete(mediaAssets).where(inArray(mediaAssets.conceptId, ids)).run();
     await db.delete(resources).where(inArray(resources.conceptId, ids)).run();
+    await db.delete(lessonDrafts).where(inArray(lessonDrafts.conceptId, ids)).run();
     await db.delete(lessons).where(inArray(lessons.conceptId, ids)).run();
     await db.delete(concepts).where(inArray(concepts.id, ids)).run();
   },
@@ -125,6 +128,21 @@ export const lessonRepo = {
    *  rewriting the content columns (continuity B6). */
   update: (conceptId: string, patch: Partial<LessonInsert>) =>
     db.update(lessons).set(patch).where(eq(lessons.conceptId, conceptId)).run(),
+};
+
+export const lessonDraftRepo = {
+  get: (conceptId: string) =>
+    db.select().from(lessonDrafts).where(eq(lessonDrafts.conceptId, conceptId)).get(),
+  upsert: (value: LessonDraftInsert) =>
+    db
+      .insert(lessonDrafts)
+      .values(value)
+      .onConflictDoUpdate({ target: lessonDrafts.conceptId, set: value })
+      .run(),
+  update: (conceptId: string, patch: Partial<LessonDraftInsert>) =>
+    db.update(lessonDrafts).set(patch).where(eq(lessonDrafts.conceptId, conceptId)).run(),
+  remove: (conceptId: string) =>
+    db.delete(lessonDrafts).where(eq(lessonDrafts.conceptId, conceptId)).run(),
 };
 
 /** The per-topic Course Canon (continuity B1). get/upsert only here; the

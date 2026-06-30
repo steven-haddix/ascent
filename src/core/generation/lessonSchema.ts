@@ -24,10 +24,10 @@ export interface BlockSchemaFragment {
   shape: z.ZodRawShape; // additional optional fields (merged into the block object)
 }
 
-export function buildLessonSchema(fragments: BlockSchemaFragment[] = []) {
+export function buildLessonBlockSchema(fragments: BlockSchemaFragment[] = []) {
   const kinds = [...BASE_BLOCK_KINDS, ...fragments.flatMap((f) => f.kinds)];
   const extraShape: z.ZodRawShape = Object.assign({}, ...fragments.map((f) => f.shape));
-  const block = z.object({
+  return z.object({
     kind: z.enum(kinds as [string, ...string[]]),
     text: z
       .string()
@@ -84,6 +84,13 @@ export function buildLessonSchema(fragments: BlockSchemaFragment[] = []) {
       ),
     ...extraShape,
   });
+}
+
+const SuggestedLessonSchema = z.object({ handle: z.string(), reason: z.string() });
+const SuggestedForkSchema = z.object({ title: z.string(), reason: z.string() });
+
+export function buildLessonSchema(fragments: BlockSchemaFragment[] = []) {
+  const block = buildLessonBlockSchema(fragments);
   return z.object({
     subtitle: z.string().describe("one-line subtitle framing the lesson"),
     blocks: z
@@ -92,10 +99,10 @@ export function buildLessonSchema(fragments: BlockSchemaFragment[] = []) {
         "8-14 blocks: short paragraphs (2-4 sentences, one idea each), section headers that chunk the lesson into clear beats, at most one callout",
       ),
     suggestedLessons: z
-      .array(z.object({ handle: z.string(), reason: z.string() }))
+      .array(SuggestedLessonSchema)
       .describe("next concepts that ALREADY EXIST in the tree — reference each by its handle (e.g. 'c2'); these become links, never recreate them"),
     suggestedForks: z
-      .array(z.object({ title: z.string(), reason: z.string() }))
+      .array(SuggestedForkSchema)
       .describe("genuinely NEW sub-concepts to create, absent from the existing list — these fork a new lesson under this one"),
   });
 }
@@ -103,4 +110,12 @@ export function buildLessonSchema(fragments: BlockSchemaFragment[] = []) {
 /** The lesson schema: the base block kinds + the visual registry's additive kinds
  *  (timeline/spectrum/…) merged in from visualAuthoring (Visual §2). */
 export const LessonSchema = buildLessonSchema(visualSchemaFragments());
+export const LessonContinuationSchema = z.object({
+  subtitle: z.string().optional().describe("provide only when the interrupted lesson did not establish one"),
+  blocks: z
+    .array(buildLessonBlockSchema(visualSchemaFragments()))
+    .describe("only the new blocks that follow the immutable accepted prefix; never repeat accepted blocks"),
+  suggestedLessons: z.array(SuggestedLessonSchema),
+  suggestedForks: z.array(SuggestedForkSchema),
+});
 export type LessonSchemaType = typeof LessonSchema;

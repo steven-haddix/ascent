@@ -76,6 +76,35 @@ export const lessons = sqliteTable("lessons", {
   generatedAt: integer("generated_at").notNull(),
 });
 
+/** Durable checkpoint for an interrupted lesson generation. Kept separate from
+ * `lessons` so a failed regeneration never overwrites the last good lesson. */
+export const lessonDrafts = sqliteTable("lesson_drafts", {
+  conceptId: text("concept_id")
+    .primaryKey()
+    .references(() => concepts.id),
+  generationId: text("generation_id").notNull(),
+  status: text("status", { enum: ["streaming", "paused", "failed"] })
+    .notNull()
+    .default("streaming"),
+  subtitle: text("subtitle"),
+  blocks: text("blocks", { mode: "json" }).$type<Block[]>().notNull().default(sql`'[]'`),
+  /** The first unsafe/incomplete block, retained only as context for recovery. */
+  discardedBlock: text("discarded_block", { mode: "json" }).$type<Block>(),
+  /** Exact original prompt so continuation does not have to reconstruct context. */
+  prompt: text("prompt"),
+  failureKind: text("failure_kind", {
+    enum: ["manual", "timeout", "truncated", "validation", "provider", "unknown"],
+  }),
+  error: text("error"),
+  /** Sanitized, model-actionable feedback derived from `error`. */
+  recoveryHint: text("recovery_hint"),
+  finishReason: text("finish_reason"),
+  attempts: integer("attempts").notNull().default(0),
+  model: text("model"),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+});
+
 /** The living "course memory" for a topic (one row per topic): shared spine,
  *  notation registry, motifs, voice charter, and cross-tree prerequisite graph
  *  every lesson conforms to. Seeded after intake+outline, then enriched by each

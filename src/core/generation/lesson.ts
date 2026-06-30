@@ -9,11 +9,12 @@ import { dlog, since } from "../debug";
 import { lessonRepo, conceptRepo, linkRepo, type ConceptRow } from "../store/repositories";
 import { normalizeTitle } from "../store/match";
 import type { Block, SuggestedFork, SuggestedLesson, LensId } from "../types";
-import { LessonSchema } from "./lessonSchema";
+import { LessonContinuationSchema, LessonSchema } from "./lessonSchema";
 import { buildLessonPrompt, type LessonContext } from "./lessonPrompt";
 import { buildContinuitySection } from "./continuity";
 import { groundingForLesson } from "./resourceJobs";
 import { planVisualBrief } from "./visualPlan";
+import { buildLessonContinuationPrompt, mergeLessonContinuation, type LessonCheckpoint } from "./lessonRecovery";
 
 export type { LessonContext } from "./lessonPrompt";
 
@@ -25,58 +26,130 @@ export interface PartialLesson {
   suggestedForks?: SuggestedFork[];
 }
 
+interface GeneratedLessonOutput {
+  subtitle: string;
+  blocks: Block[];
+  suggestedLessons: { handle: string; reason: string }[];
+  suggestedForks: SuggestedFork[];
+}
+
+export interface LessonRecoveryInput {
+  checkpoint: LessonCheckpoint;
+  recoveryHint: string | null;
+  originalPrompt: string | null;
+}
+
+export interface GenerateLessonOptions {
+  recovery?: LessonRecoveryInput;
+  /** Persist the exact prompt before the provider starts streaming. */
+  onPrepared?: (prompt: string) => void | Promise<void>;
+}
+
+type PartialHandler = (partial: PartialLesson) => void | Promise<void>;
+
+const anthropicStructuredOptions = {
+  anthropic: {
+    // Native output_config structured decoding stalls on this broader visual
+    // block schema; the JSON tool path still streams partial object input.
+    structuredOutputMode: "jsonTool",
+  } satisfies AnthropicLanguageModelOptions,
+};
+
+async function streamInitialLesson(
+  prompt: string,
+  onPartial?: PartialHandler,
+  signal?: AbortSignal,
+): Promise<GeneratedLessonOutput> {
+  const result = streamText({
+    model: getModelFor("lesson"),
+    output: Output.object({ schema: LessonSchema }),
+    providerOptions: anthropicStructuredOptions,
+    abortSignal: signal,
+    prompt,
+  });
+  const outputPromise = result.output;
+  void outputPromise.then(undefined, () => {});
+  let n = 0;
+  for await (const partial of result.partialOutputStream) {
+    n += 1;
+    if (n === 1) dlog("gen", "first partial");
+    else if (n % 25 === 0) dlog("gen", `partial #${n}, ${(partial as PartialLesson)?.blocks?.length ?? 0} blocks`);
+    await onPartial?.(partial as unknown as PartialLesson);
+  }
+  dlog("gen", `stream ended: ${n} partials`);
+  const output = await outputPromise;
+  return {
+    subtitle: output.subtitle,
+    blocks: output.blocks as Block[],
+    suggestedLessons: output.suggestedLessons,
+    suggestedForks: output.suggestedForks as SuggestedFork[],
+  };
+}
+
+async function streamLessonContinuation(
+  originalPrompt: string,
+  recovery: LessonRecoveryInput,
+  onPartial?: PartialHandler,
+  signal?: AbortSignal,
+): Promise<GeneratedLessonOutput> {
+  const prompt = buildLessonContinuationPrompt(originalPrompt, recovery.checkpoint, recovery.recoveryHint);
+  const result = streamText({
+    model: getModelFor("lesson"),
+    output: Output.object({ schema: LessonContinuationSchema }),
+    providerOptions: anthropicStructuredOptions,
+    abortSignal: signal,
+    prompt,
+  });
+  const outputPromise = result.output;
+  void outputPromise.then(undefined, () => {});
+  let n = 0;
+  for await (const partial of result.partialOutputStream) {
+    n += 1;
+    const next = partial as unknown as PartialLesson;
+    await onPartial?.(mergeLessonContinuation(recovery.checkpoint, next));
+  }
+  dlog("gen", `continuation ended: ${n} partials`);
+  const output = await outputPromise;
+  return {
+    subtitle: recovery.checkpoint.subtitle ?? output.subtitle ?? "",
+    blocks: [...recovery.checkpoint.blocks, ...(output.blocks as Block[])],
+    suggestedLessons: output.suggestedLessons,
+    suggestedForks: output.suggestedForks as SuggestedFork[],
+  };
+}
+
 export async function generateLesson(
   concept: ConceptRow,
   ctx: LessonContext,
-  onPartial?: (partial: PartialLesson) => void,
+  onPartial?: PartialHandler,
   signal?: AbortSignal,
+  options: GenerateLessonOptions = {},
 ) {
   const t0 = performance.now();
   dlog("gen", "start:", concept.title);
 
-  // Continuity (B4): a handful of fast local SQLite reads + the canon assemble a
-  // handoff section so this lesson builds on what came before. It never throws and
-  // returns "" when there's nothing to inject, so generation is unchanged today.
-  const continuity = await buildContinuitySection(concept, ctx);
-  // Web search grounding (web-search spec §5): a single search (or reuse of cached resources) feeds
-  // a bounded "live web findings" block into the prompt. Best-effort + fail-open — it returns "" on
-  // no capability / timeout / error, so generation is never blocked, and it stashes results for the
-  // post-stream persistResources step.
-  const grounding = await groundingForLesson(concept, ctx, signal);
-  const visualBrief = await planVisualBrief(concept, ctx, signal);
-
-  const result = streamText({
-    model: getModelFor("lesson"),
-    output: Output.object({ schema: LessonSchema }),
-    providerOptions: {
-      anthropic: {
-        // Native output_config structured decoding stalls on this broader visual
-        // block schema; the JSON tool path still streams partial object input.
-        structuredOutputMode: "jsonTool",
-      } satisfies AnthropicLanguageModelOptions,
-    },
-    abortSignal: signal,
-    prompt: buildLessonPrompt(concept, ctx, { continuity, grounding, visualBrief }),
-  });
-
-  // Capture output now and pre-attach a catch: on abort we throw out of the
-  // for-await below without awaiting output, and an un-awaited rejection would
-  // surface as an unhandled promise rejection. `await` still sees a rejection on
-  // the success path (e.g. a parse error), so real failures still propagate.
-  dlog("gen", "stream created @", since(t0));
-  const outputPromise = result.output;
-  void outputPromise.then(undefined, () => {});
-
-  let n = 0;
-  for await (const partial of result.partialOutputStream) {
-    n += 1;
-    if (n === 1) dlog("gen", "first partial @", since(t0));
-    else if (n % 25 === 0) dlog("gen", `partial #${n}, ${(partial as PartialLesson)?.blocks?.length ?? 0} blocks`);
-    onPartial?.(partial as unknown as PartialLesson);
+  let originalPrompt = options.recovery?.originalPrompt ?? null;
+  if (!originalPrompt) {
+    // Continuity + grounding + the visual brief are computed once and the exact
+    // assembled prompt is checkpointed. Recovery reuses it rather than guessing
+    // what context the interrupted attempt saw.
+    const continuity = await buildContinuitySection(concept, ctx);
+    const grounding = await groundingForLesson(concept, ctx, signal);
+    const visualBrief = await planVisualBrief(concept, ctx, signal);
+    originalPrompt = buildLessonPrompt(concept, ctx, { continuity, grounding, visualBrief });
   }
-  dlog("gen", `stream ended: ${n} partials @`, since(t0));
-  const output = await outputPromise;
+  await options.onPrepared?.(originalPrompt);
+  dlog("gen", options.recovery ? "continuation created @" : "stream created @", since(t0));
+  const output = options.recovery
+    ? await streamLessonContinuation(originalPrompt, options.recovery, onPartial, signal)
+    : await streamInitialLesson(originalPrompt, onPartial, signal);
   dlog("gen", "output ready @", since(t0));
+
+  if (options.recovery && (output.blocks.length < 8 || output.blocks.length > 14)) {
+    throw new Error(
+      `Lesson continuation validation failed: the combined lesson has ${output.blocks.length} blocks; expected 8-14.`,
+    );
+  }
 
   const now = Date.now();
   const blocks = output.blocks as Block[];

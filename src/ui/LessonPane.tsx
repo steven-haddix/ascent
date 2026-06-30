@@ -386,7 +386,19 @@ export function LessonPane({
     briefSummary,
     referrer,
   };
-  const { lesson, loaded, partial, generating, error, generate, stop } = useConceptLesson(concept, lessonCtx);
+  const {
+    lesson,
+    loaded,
+    partial,
+    generating,
+    recovering,
+    autoRetrying,
+    error,
+    generate,
+    restart,
+    discardDraft,
+    stop,
+  } = useConceptLesson(concept, lessonCtx);
 
   const highlightsQ = useHighlights(concept.id);
   const addHighlight = useAddHighlight(concept.id);
@@ -398,12 +410,12 @@ export function LessonPane({
 
   // While generating (first time OR regenerating), show the live stream; otherwise
   // the persisted lesson wins — so a regenerate visibly replaces the old one.
-  const display = generating ? partial : (lesson ?? partial);
+  const display = generating || recovering ? partial : (lesson ?? partial);
   const subtitle = display?.subtitle ?? null;
   const blocks = ((display?.blocks ?? []) as Block[]).filter(isRenderableBlock);
   // Idle = nothing generated and nothing in flight → show the Generate CTA. Gated on
   // `loaded` so it doesn't flash before a persisted lesson resolves when returning.
-  const idle = loaded && !lesson && !generating && !error;
+  const idle = loaded && !lesson && !generating && !recovering && !error;
 
   // Ctrl+F find-in-lesson over the rendered article DOM. Recomputes when content
   // settles (blocks/generatedAt/generating) so an open search tracks streaming.
@@ -536,7 +548,7 @@ export function LessonPane({
             </span>
           ))}
         </div>
-        {lesson && <RegenerateButton generating={generating} onConfirm={generate} />}
+        {lesson && !recovering && <RegenerateButton generating={generating} onConfirm={generate} />}
       </div>
 
       <h1 className="font-serif text-4xl font-normal leading-tight tracking-tight text-ink">{concept.title}</h1>
@@ -594,10 +606,27 @@ export function LessonPane({
       )}
       {error && !generating && (
         <div data-find-ignore className="mt-8 rounded-md border border-dashed border-rule-strong bg-surface p-4 text-sm text-ink-2">
-          <p className="text-red-600">Couldn't generate this lesson — {error}</p>
-          <button onClick={generate} className="mt-2 rounded-md bg-ink px-3 py-1 text-xs font-medium text-surface hover:bg-accent">
-            Retry
-          </button>
+          <p className="font-medium text-ink">
+            {blocks.length > 0
+              ? `Generation paused with ${blocks.length} saved block${blocks.length === 1 ? "" : "s"}.`
+              : "Couldn't finish this lesson."}
+          </p>
+          <p className="mt-1 text-xs text-red-600">{error}</p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button onClick={generate} className="rounded-md bg-ink px-3 py-1 text-xs font-medium text-surface hover:bg-accent">
+              {blocks.length > 0 ? "Continue lesson" : "Retry"}
+            </button>
+            {recovering && (
+              <button onClick={restart} className="rounded-md border border-rule px-3 py-1 text-xs text-ink-2 hover:border-rule-strong hover:text-ink">
+                Start over
+              </button>
+            )}
+            {recovering && lesson && (
+              <button onClick={discardDraft} className="rounded-md px-3 py-1 text-xs text-ink-3 hover:bg-surface-2 hover:text-ink">
+                Keep previous lesson
+              </button>
+            )}
+          </div>
         </div>
       )}
 
@@ -616,7 +645,7 @@ export function LessonPane({
             {generating && (
               <div data-find-ignore className="mt-2 flex items-center gap-2 font-sans text-xs text-ink-3">
                 <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />
-                streaming…
+                {autoRetrying ? "recovering from saved blocks…" : "streaming…"}
                 <button
                   onClick={stop}
                   className="rounded border border-rule px-1.5 py-0.5 text-[11px] text-ink-3 hover:border-rule-strong hover:text-ink"
@@ -625,7 +654,7 @@ export function LessonPane({
                 </button>
               </div>
             )}
-            {!generating && (
+            {!generating && !recovering && (
               <div data-find-ignore>
                 <NextSteps related={related} forks={forks} onFork={onFork} onNavigate={onNavigate} />
               </div>

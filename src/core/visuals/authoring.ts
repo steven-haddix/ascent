@@ -109,7 +109,7 @@ export const visualAuthoring: Partial<Record<VisualKind, VisualPromptDefinition>
   },
   media: {
     kind: "media",
-    guidance: `- A "media" block places a REAL provider-sourced image (a historical photo, an artwork, a portrait, a specimen) — reach for it when an authentic image teaches better than a drawing. Set a stable \`mediaId\` (kebab slug, unique in this lesson), a precise \`query\` (what to search for), and a one-line \`purpose\` (also used as alt text). A job resolves and caches it with attribution; you NEVER write a URL.`,
+    guidance: `- A "media" block places a REAL provider-sourced image (a historical photo, an artwork, a portrait, a specimen) — reach for it when an authentic image teaches better than a drawing. Set a short, specific \`title\` (3-7 words), a stable \`mediaId\` (kebab slug, unique in this lesson), a precise \`query\` (what to search for), and a one-line \`purpose\` (also used as alt text). A job resolves and caches it with attribution; you NEVER write a URL.`,
     schema: {
       mediaId: z.string().optional().describe("for `media` blocks ONLY: a kebab-case slug unique within this lesson"),
       query: z.string().optional().describe("for `media` blocks ONLY: the image search query"),
@@ -119,7 +119,7 @@ export const visualAuthoring: Partial<Record<VisualKind, VisualPromptDefinition>
   },
   "generated-image": {
     kind: "generated-image",
-    guidance: `- A "generated-image" block creates a rich AI-GENERATED ILLUSTRATION — use it for a scene, visual analogy, reconstruction, atmosphere, or spatial intuition that would be awkward as SVG. It complements rather than replaces exact charts, maps, diagrams, and sourced media. Use it only when the VISUAL TOOLKIT says an image provider is configured. Set a stable \`mediaId\` (kebab slug), a vivid self-contained \`prompt\` describing subject, composition, viewpoint, and teaching focus, plus one-line \`purpose\` and \`alt\`. Avoid important text inside the image and never rely on it for exact labels, measurements, or factual evidence. A job generates and caches the image; you NEVER write a URL.`,
+    guidance: `- A "generated-image" block creates a rich AI-GENERATED ILLUSTRATION — use it for a scene, visual analogy, reconstruction, atmosphere, or spatial intuition that would be awkward as SVG. It complements rather than replaces exact charts, maps, diagrams, and sourced media. Use it only when the VISUAL TOOLKIT says an image provider is configured. Set a short, specific \`title\` (3-7 words), a stable \`mediaId\` (kebab slug), a vivid self-contained \`prompt\` describing subject, composition, viewpoint, and teaching focus, plus one-line \`purpose\` and \`alt\`. Avoid important text inside the image and never rely on it for exact labels, measurements, or factual evidence. A job generates and caches the image; you NEVER write a URL.`,
     schema: {
       mediaId: z.string().optional().describe("for `generated-image` blocks ONLY: a kebab-case slug unique within this lesson"),
       prompt: z.string().optional().describe("for `generated-image` blocks ONLY: a vivid self-contained generation prompt"),
