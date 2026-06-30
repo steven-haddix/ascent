@@ -1,7 +1,7 @@
 // The model catalog — kept dependency-free so both the AI service and the
 // settings layer can import it without a cycle (service ↔ settings). Model IDs
 // are mid-2026 (see the design spec). Default is Sonnet; the user overrides in
-// Settings, applied globally via getModel().
+// Settings, resolved per task via getModelFor().
 export const MODELS = {
   flagship: "claude-opus-4-8",
   flagshipPrev: "claude-opus-4-7",

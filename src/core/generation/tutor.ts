@@ -5,13 +5,16 @@
 // highlighted block appear/update without a full regenerate.
 import { streamText, tool, stepCountIs } from "ai";
 import { z } from "zod";
-import { getModel } from "../ai/service";
+import { getModelFor } from "../ai/service";
 import { lessonRepo, widgetRepo, type ConceptRow } from "../store/repositories";
 import { queryClient } from "../store/queryClient";
 import { isLessonStreaming } from "./lessonStreams";
 import { ensureWidgetJob } from "./widgetJobs";
 import { widgetKeysFor } from "../widgets/keys";
+import { mediaProviderRegistry } from "../media/registry";
+import { isGenerative } from "../media/types";
 import type { Block, LensId } from "../types";
+import { ensureGeneratedImageJob } from "./generatedImageJobs";
 
 export const TUTOR_MODES = {
   Mentor: "You are a warm, encouraging mentor who blends intuition with rigor.",
@@ -47,6 +50,10 @@ export async function chat(
   message: string,
   onDelta: (delta: string) => void,
 ): Promise<string> {
+  const generatedImageProviders = mediaProviderRegistry.enabled().filter(isGenerative);
+  const generatedImageAvailability = generatedImageProviders.length
+    ? `Generated-image providers currently available: ${generatedImageProviders.map((p) => `${p.label} (${p.id})`).join(", ")}.`
+    : `No generated-image provider is currently enabled. Do not call setLessonImage.`;
   const system =
     `${TUTOR_MODES[mode]} The learner is studying "${concept.title}" within "${ctx.topicTitle}" ` +
     `(${ctx.path.join(" > ")}).${ctx.summary ? ` This concept covers: ${ctx.summary}.` : ""}` +
@@ -83,7 +90,16 @@ export async function chat(
     `ONLY your spec, never this conversation. Use mode="replace" to revise the previous ` +
     `chat-added widget ("make the slider logarithmic"), mode="add" for a new one. Building takes ` +
     `a moment, so acknowledge with something like "Building that interactive demo in the lesson ` +
-    `↓". Call it only when interaction genuinely beats prose, code, or a static chart.`;
+    `↓". Call it only when interaction genuinely beats prose, code, or a static chart.\n\n` +
+    `${generatedImageAvailability} If the learner asks to SEE a specific scene, reconstruction, ` +
+    `visual analogy, environment, or richly illustrated concept, you may call setLessonImage. ` +
+    `Use it when a generated illustration adds visual intuition that prose, an exact chart, or a ` +
+    `simple diagram cannot. It is not factual evidence and may contain inaccuracies, so keep exact ` +
+    `labels, measurements, and claims in the lesson text. Give the builder a vivid self-contained ` +
+    `prompt describing subject, composition, viewpoint, style, and teaching focus; avoid important ` +
+    `text inside the image. Use mode="replace" when the learner refines the last requested image ` +
+    `and mode="add" for a distinct one. If they explicitly request OpenAI or Gemini, select that ` +
+    `provider; otherwise use auto. Acknowledge that the illustration is generating in the lesson ↓.`;
 
   const messages = [
     ...history.map((t) => ({
@@ -244,10 +260,94 @@ export async function chat(
         return { ok: true as const, mode: replaceIdx >= 0 ? ("replace" as const) : ("add" as const), title };
       },
     }),
+    setLessonImage: tool({
+      description:
+        "Add or replace an AI-generated illustration in the lesson. Call when the learner asks " +
+        "to see a specific scene, reconstruction, visual analogy, or richly illustrated concept. " +
+        "Do not use it for exact data, labels, measurements, or factual evidence.",
+      inputSchema: z.object({
+        mode: z
+          .enum(["add", "replace"])
+          .describe("'replace' revises the most recent chat-added generated image; 'add' appends a distinct image"),
+        title: z.string().describe("short 3-7 word caption for the illustration"),
+        prompt: z
+          .string()
+          .describe("vivid self-contained image prompt covering subject, composition, viewpoint, style, and teaching focus; avoid text in-image"),
+        purpose: z.string().describe("one sentence explaining what the learner should notice or understand"),
+        alt: z.string().describe("concise accessible description of the intended image"),
+        provider: z
+          .enum(["auto", "openai-images", "gemini-images"])
+          .default("auto")
+          .describe("use a named provider only when the learner explicitly requests it; otherwise auto"),
+      }),
+      execute: async ({ mode, title, prompt, purpose, alt, provider }) => {
+        if (isLessonStreaming(concept.id)) {
+          return { ok: false as const, error: "the lesson is currently generating — try again in a moment" };
+        }
+        const preferredProviderId = provider === "auto" ? undefined : provider;
+        const candidates = preferredProviderId
+          ? generatedImageProviders.filter((p) => p.id === preferredProviderId)
+          : generatedImageProviders;
+        if (candidates.length === 0) {
+          return {
+            ok: false as const,
+            error: preferredProviderId
+              ? "that image provider is not enabled in Settings"
+              : "no image-generation provider is enabled in Settings",
+          };
+        }
+        const lesson = await lessonRepo.get(concept.id);
+        if (!lesson) return { ok: false as const, error: "no lesson yet for this concept" };
+        const blocks: Block[] = [...lesson.blocks];
+
+        let replaceIdx = -1;
+        if (mode === "replace") {
+          for (let i = blocks.length - 1; i >= 0; i--) {
+            if (blocks[i].source === "chat" && blocks[i].kind === "generated-image") {
+              replaceIdx = i;
+              break;
+            }
+          }
+        }
+        const mediaId =
+          replaceIdx >= 0 && blocks[replaceIdx].mediaId
+            ? blocks[replaceIdx].mediaId!
+            : `generated-${crypto.randomUUID()}`;
+        const imageBlock: Block = {
+          kind: "generated-image",
+          mediaId,
+          title,
+          prompt,
+          purpose,
+          alt,
+          source: "chat",
+        };
+        if (replaceIdx >= 0) blocks[replaceIdx] = imageBlock;
+        else blocks.push(imageBlock);
+
+        const lenses: LensId[] = Array.from(new Set<LensId>([...lesson.lenses, "viz"]));
+        const updated = { ...lesson, blocks, lenses, generatedAt: Date.now() };
+        await lessonRepo.upsert(updated);
+        queryClient.setQueryData(["lesson", concept.id], updated);
+        ensureGeneratedImageJob({
+          conceptId: concept.id,
+          mediaId,
+          prompt,
+          purpose,
+          preferredProviderId,
+        });
+        return {
+          ok: true as const,
+          mode: replaceIdx >= 0 ? ("replace" as const) : ("add" as const),
+          provider: preferredProviderId ?? "auto",
+          title,
+        };
+      },
+    }),
   };
 
   const result = streamText({
-    model: getModel(),
+    model: getModelFor("tutor"),
     system,
     messages,
     tools,

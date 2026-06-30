@@ -41,7 +41,12 @@ export interface EmbedPayload {
 }
 export interface GeneratedPayload {
   kind: "generated-image";
-  url: string;
+  /** Base64-encoded image bytes returned by the generation API. The job hands
+   *  these straight back to Rust for local caching; renderers never use a data URL. */
+  data: string;
+  mimeType: string;
+  width?: number;
+  height?: number;
 }
 export interface AudioPayload {
   kind: "audio";
@@ -66,6 +71,8 @@ export interface RequestDescriptor {
   body?: string;
   /** names the Keychain secret Rust injects (provider:<id>) — never in JS */
   secretAccount?: string;
+  auth?: { scheme: "bearer" | "header" | "query"; name?: string };
+  timeoutMs?: number;
 }
 
 /** A descriptor for an embeddable asset (oEmbed/iframe), rendered sandboxed (§6e). */
@@ -76,6 +83,8 @@ export interface EmbedDescriptor {
 
 export interface GenerateOpts {
   size?: string;
+  aspectRatio?: string;
+  quality?: "low" | "medium" | "high";
   n?: number;
 }
 

@@ -50,7 +50,8 @@ export interface Block {
     | "figure"
     | "graph"
     | "map"
-    | "media";
+    | "media"
+    | "generated-image";
   /** paragraph/callout body, code source, LaTeX (for `math`), or Mermaid spec (for `diagram`) */
   text?: string;
   /** callout label (e.g. "Notice") or section label */
@@ -111,6 +112,8 @@ export interface Block {
   mediaId?: string;
   /** for `media`: the search query the resolve job sends to a media provider */
   query?: string;
+  /** for `generated-image`: the self-contained image-generation prompt */
+  prompt?: string;
   /** for `media`: what the asset is for (helps ranking + alt text); free text */
   purpose?: string;
 }

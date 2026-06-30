@@ -40,4 +40,42 @@ describe("settings — per-task route/model resolution", () => {
     expect(getTaskModelId("lesson")).toBe(overrideId);
     expect(getModelId()).not.toBe(overrideId); // global model is still the default (Sonnet)
   });
+
+  it("inherits provider settings with the default route/model selection", async () => {
+    const {
+      getModelId,
+      getRouteId,
+      getTaskModelProviderSettings,
+      setModelProviderSettings,
+    } = await import("./settings");
+    const settings = {
+      adapter: "anthropic",
+      version: 1,
+      value: { thinking: { type: "adaptive" }, effort: "medium" },
+    };
+    setModelProviderSettings(getRouteId(), getModelId(), settings);
+    expect(getTaskModelProviderSettings("lesson")).toEqual(settings);
+    // Widget has a registry-level Haiku default, so Sonnet settings do not leak.
+    expect(getTaskModelProviderSettings("widget")).toBeNull();
+  });
+
+  it("clears provider settings together with a task override", async () => {
+    const {
+      clearTaskOverride,
+      getTaskModelId,
+      getTaskModelProviderSettings,
+      getTaskRouteId,
+      setTaskModelId,
+      setTaskModelProviderSettings,
+    } = await import("./settings");
+    setTaskModelId("tutor", MODELS.flagshipPrev);
+    setTaskModelProviderSettings("tutor", getTaskRouteId("tutor"), getTaskModelId("tutor"), {
+      adapter: "anthropic",
+      version: 1,
+      value: { thinking: { type: "adaptive" }, effort: "max" },
+    });
+    expect(getTaskModelProviderSettings("tutor")).not.toBeNull();
+    clearTaskOverride("tutor");
+    expect(getTaskModelProviderSettings("tutor")).toBeNull();
+  });
 });

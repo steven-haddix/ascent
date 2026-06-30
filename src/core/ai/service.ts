@@ -1,15 +1,16 @@
-// AIService — the only place that touches the model SDK. Every request is routed
-// through Rust (CORS-free; the key is attached in Rust, never in JS).
+// AIService — resolves task selections and composes provider + usage middleware.
+// Every request is routed through Rust (CORS-free; the key is attached in Rust,
+// never in JS); provider adapters own their SDK-specific model construction.
 //   - non-streaming requests -> ai_request (full Response)
 //   - streaming requests (body.stream === true) -> ai_stream, whose body chunks
 //     arrive over a Tauri Channel and are rebuilt into a streaming Response.
-// Provider-agnostic: other providers slot into getModel() later.
-import { createAnthropic } from "@ai-sdk/anthropic";
 import { wrapLanguageModel, type LanguageModel, type Tool } from "ai";
 import { invoke, Channel } from "@tauri-apps/api/core";
-import { getModelId, getRouteId, getTaskModelId, getTaskRouteId } from "../settings";
+import { getTaskModelSelection } from "../settings";
 import { getRoute, type Route } from "./routes";
 import type { AiTaskId } from "./tasks";
+import { findTextProviderAdapter, resolveTextProviderSettings } from "./text/registry";
+import type { TextProviderAdapter } from "./text/types";
 import { recordingMiddleware } from "./usage";
 import { dlog, now, since } from "../debug";
 
@@ -147,50 +148,44 @@ function makeRouteFetch(secret: string, scheme: string) {
   };
 }
 
-/** Construct the raw provider model for a route. Only the Anthropic SDK is wired
- *  today; gateway routes ("openai-compatible") are defined in routes.ts but not yet
- *  built here (they need their SDK + a runnable spike before activation). */
-function buildModel(route: Route, modelId: string) {
+/** Construct a raw model through the route's provider-owned runtime adapter. */
+function buildModel(route: Route, modelId: string, adapter: TextProviderAdapter) {
   const fetch = makeRouteFetch(route.secretName, route.authScheme);
-  if (route.sdk === "anthropic") {
-    const anthropic = createAnthropic({ apiKey: "route-managed", fetch, baseURL: route.baseURL });
-    return anthropic(modelId);
-  }
-  throw new Error(`Route "${route.id}" (sdk "${route.sdk}") is not wired yet — see routes.ts.`);
+  return adapter.buildModel({ route, modelId, fetch });
 }
 
 // Re-exported so existing call sites keep importing MODELS from the service.
 export { MODELS } from "./models";
 
-/** Provider-agnostic model factory. Selects the active route (Settings), builds its
- *  provider model, and wraps it with usage-recording middleware so every call's cost
- *  is captured at this one chokepoint. Defaults to the user's chosen model unless a
- *  call passes an explicit id. */
-export function getModel(modelId: string = getModelId()) {
-  const route = getRoute(getRouteId());
-  return wrapLanguageModel({
-    model: buildModel(route, modelId),
-    middleware: recordingMiddleware(route.id, modelId),
-  });
-}
-
 /** Per-task model factory (tasks.ts) — resolves the task's route + model from its
- *  Settings overrides and tags usage events with the task id, so each use case's
- *  cost is attributable. New use cases should prefer this over getModel(). */
+ *  Settings selection, asks the route adapter to inject its opaque provider settings,
+ *  and tags usage with the task id. This is intentionally the only public text-model
+ *  factory: requiring a task keeps every Settings scenario honest. */
 export function getModelFor(task: AiTaskId) {
-  const route = getRoute(getTaskRouteId(task));
-  const modelId = getTaskModelId(task);
+  const selection = getTaskModelSelection(task);
+  const route = getRoute(selection.routeId);
+  const modelId = selection.modelId;
+  const { adapter, value } = resolveTextProviderSettings({
+    adapterId: route.adapterId,
+    modelId,
+    task,
+    envelope: selection.providerSettings,
+  });
   return wrapLanguageModel({
-    model: buildModel(route, modelId),
-    middleware: recordingMiddleware(route.id, modelId, task),
+    model: buildModel(route, modelId, adapter),
+    middleware: [
+      adapter.settingsMiddleware({ modelId, task, settings: value }),
+      recordingMiddleware(route.id, modelId, task),
+    ],
   });
 }
 
-/** Cheap check: does the task's active route support native web search? Only the Anthropic SDK is
- *  wired (spec §4); OpenAI-native is blocked on the openai-compatible branch in buildModel. Used by
- *  the search registry's capability gate, so it must stay allocation-free (no model/tool built). */
+/** Cheap capability check for a route-native web-search tool. It stays
+ *  allocation-free: neither a provider instance nor a model is constructed. */
 export function isNativeSearchAvailable(task: AiTaskId): boolean {
-  return getRoute(getTaskRouteId(task)).sdk === "anthropic";
+  const selection = getTaskModelSelection(task);
+  const route = getRoute(selection.routeId);
+  return typeof findTextProviderAdapter(route.adapterId)?.buildNativeWebSearchTool === "function";
 }
 
 /** The route-boundary seam for native search (spec §4): returns the route-bound model AND the
@@ -199,15 +194,24 @@ export function isNativeSearchAvailable(task: AiTaskId): boolean {
  *  Keychain. Returns null when the active route has no native search. maxUses is capped to bound
  *  cost (search content inflates input tokens — spike §4). */
 export function getNativeSearch(task: AiTaskId): { model: LanguageModel; tool: Tool } | null {
-  const route = getRoute(getTaskRouteId(task));
-  if (route.sdk !== "anthropic") return null;
-  const fetch = makeRouteFetch(route.secretName, route.authScheme);
-  const provider = createAnthropic({ apiKey: "route-managed", fetch, baseURL: route.baseURL });
-  const modelId = getTaskModelId(task);
-  const model = wrapLanguageModel({
-    model: provider(modelId),
-    middleware: recordingMiddleware(route.id, modelId, task),
+  const selection = getTaskModelSelection(task);
+  const route = getRoute(selection.routeId);
+  const modelId = selection.modelId;
+  const { adapter, value } = resolveTextProviderSettings({
+    adapterId: route.adapterId,
+    modelId,
+    task,
+    envelope: selection.providerSettings,
   });
-  const tool = provider.tools.webSearch_20250305({ maxUses: 3 }) as Tool;
+  if (!adapter.buildNativeWebSearchTool) return null;
+  const fetch = makeRouteFetch(route.secretName, route.authScheme);
+  const model = wrapLanguageModel({
+    model: adapter.buildModel({ route, modelId, fetch }),
+    middleware: [
+      adapter.settingsMiddleware({ modelId, task, settings: value }),
+      recordingMiddleware(route.id, modelId, task),
+    ],
+  });
+  const tool = adapter.buildNativeWebSearchTool({ route, fetch, maxUses: 3 });
   return { model, tool };
 }

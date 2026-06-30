@@ -49,3 +49,9 @@ export function providerRequest(descriptor: ProviderDescriptor): Promise<Provide
 export function providerDownload(descriptor: ProviderDescriptor): Promise<DownloadedAsset> {
   return invoke<DownloadedAsset>("provider_download", { descriptor });
 }
+
+/** Persist base64 image bytes returned inside a JSON generation response. Keeping
+ *  the decode/write in Rust avoids data URLs and gives every renderer a local path. */
+export function cacheGeneratedAsset(data: string, contentType: string, cacheKey: string): Promise<DownloadedAsset> {
+  return invoke<DownloadedAsset>("cache_generated_asset", { data, contentType, cacheKey });
+}

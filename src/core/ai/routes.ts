@@ -1,13 +1,13 @@
 // Provider/route registry — the seam that lets the same model be reached through
 // different providers/gateways (Anthropic direct today; Anthropic-via-OpenRouter
 // or a gateway later). A "route" bundles everything that differs by provider:
-// which SDK builds the model, which Keychain key + auth header to use, the base
+// which runtime adapter builds the model, which Keychain key + auth header to use, the base
 // URL, the selectable models, and how cost is determined (computed from a rate
 // table vs. read from gateway-reported metadata).
 //
 // Dependency-free (like models.ts) so settings/pricing can import it without a
-// cycle. The actual model construction lives in service.ts (it owns the SDK +
-// the Rust-bound fetch); this file is pure config the factory reads.
+// cycle. Provider adapters own model construction; service.ts supplies the
+// Rust-bound fetch. This file is pure route metadata.
 import { MODELS, MODEL_OPTIONS } from "./models";
 
 /** A selectable model on a route. The id is a plain string because a gateway has
@@ -35,9 +35,8 @@ export interface ModelRates {
 export interface Route {
   id: string;
   label: string;
-  /** Which SDK the model factory uses. Only "anthropic" is wired today; a gateway
-   *  route would use "openai-compatible" and service.ts would grow that branch. */
-  sdk: "anthropic" | "openai-compatible";
+  /** Runtime adapter that owns model construction and provider-specific settings. */
+  adapterId: string;
   /** Keychain account holding this route's key (see secrets.ts). */
   secretName: string;
   /** How Rust attaches the key to outgoing requests. */
@@ -71,7 +70,7 @@ const ANTHROPIC_RATES: Record<string, ModelRates> = {
 const anthropic: Route = {
   id: "anthropic",
   label: "Anthropic",
-  sdk: "anthropic",
+  adapterId: "anthropic",
   secretName: "anthropic-api-key",
   authScheme: "x-api-key",
   models: MODEL_OPTIONS,
@@ -93,14 +92,13 @@ function readNumber(obj: unknown, ...path: string[]): number | null {
 // EXAMPLE route (not active). Demonstrates the seam: reaching Anthropic models
 // THROUGH OpenRouter. OpenRouter returns an actual dollar cost in providerMetadata
 // (when usage accounting is enabled), so costMode is "reported" with the rate table
-// kept only as a fallback. To activate: add the "openai-compatible" branch in
-// service.ts (createOpenAICompatible / @openrouter/ai-sdk-provider with baseURL),
+// kept only as a fallback. To activate: register an OpenRouter text adapter,
 // store an "openrouter-api-key" in the Keychain, flip `experimental` off, and
-// verify with a runnable spike. Left here as the proof the abstraction holds.
+// verify with a runnable spike.
 const openrouter: Route = {
   id: "openrouter",
   label: "OpenRouter",
-  sdk: "openai-compatible",
+  adapterId: "openrouter",
   secretName: "openrouter-api-key",
   authScheme: "bearer",
   baseURL: "https://openrouter.ai/api/v1",

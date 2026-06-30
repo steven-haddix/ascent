@@ -39,3 +39,9 @@ export function isMapBlock(b: Block): b is MapBlock {
 export function isMediaBlock(b: Block): b is Block & { kind: "media"; mediaId: string } {
   return b.kind === "media" && !!b.mediaId;
 }
+
+export function isGeneratedImageBlock(
+  b: Block,
+): b is Block & { kind: "generated-image"; mediaId: string; prompt: string } {
+  return b.kind === "generated-image" && !!b.mediaId && !!b.prompt;
+}

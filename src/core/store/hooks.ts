@@ -102,7 +102,7 @@ export function useForkConcept() {
       const id = crypto.randomUUID();
       const now = Date.now();
       // Inherit the parent's domains as an instant default so "fork then immediately generate"
-      // has a sensible visual budget; placeForkedConcept refines it via the LLM a beat later.
+      // has sensible visual hints; placeForkedConcept refines it via the LLM a beat later.
       const parent = await conceptRepo.get(parentId);
       await conceptRepo.create({
         id,

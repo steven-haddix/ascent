@@ -28,6 +28,8 @@ import { FindBar } from "./find/FindBar";
 /** A block is renderable once it has the content its kind needs — guards against
  *  empty or half-streamed blocks. */
 function isRenderableBlock(b: Block): boolean {
+  const visual = visualRenderers[b.kind];
+  if (visual) return visual.isRenderable(b);
   switch (b.kind) {
     case "section":
       return !!b.label?.trim();

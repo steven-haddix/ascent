@@ -2,11 +2,10 @@
 //   - defineInline: a one-line gloss for an arbitrary text selection
 //   - normalizeConcept: turn a (possibly messy) selection into a clean concept
 //     title + summary, ready to fork
-// Both go through the shared getModel() chokepoint (usage auto-recorded) pinned to
-// the fast model, and keep the lesson context so answers are situated, not generic.
+// Both resolve through the `micro` task (Haiku by default) and keep the lesson
+// context so answers are situated, not generic.
 import { generateText } from "ai";
-import { getModel } from "../ai/service";
-import { MODELS } from "../ai/models";
+import { getModelFor } from "../ai/service";
 
 export interface MicroContext {
   topicTitle: string;
@@ -25,7 +24,7 @@ function place(ctx: MicroContext): string {
 /** One-line definition of `selection`, grounded in the current lesson. */
 export async function defineInline(selection: string, ctx: MicroContext): Promise<string> {
   const { text } = await generateText({
-    model: getModel(MODELS.fast),
+    model: getModelFor("micro"),
     system:
       "You are a concise tutor. Define the learner's selected text in ONE clear, plain-language " +
       "sentence, grounded in the lesson they're reading. No markdown, no preamble, and do not " +
@@ -46,7 +45,7 @@ export interface NormalizedConcept {
 export async function normalizeConcept(selection: string, ctx: MicroContext): Promise<NormalizedConcept> {
   const fallbackTitle = selection.trim().replace(/\s+/g, " ").slice(0, 80);
   const { text } = await generateText({
-    model: getModel(MODELS.fast),
+    model: getModelFor("micro"),
     system:
       "You turn a learner's text selection into a concept worth its own lesson. Reply with ONLY " +
       "a concise concept title (2-5 words, properly capitalized), then ' :: ', then a one-line " +

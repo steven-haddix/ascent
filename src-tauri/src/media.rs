@@ -4,6 +4,7 @@
 // same auth-in-Rust boundary as ai_request, so keys never enter JS. Used by media search/
 // fetch AND embeddings. Adding a provider is a pure-TS adapter — zero changes here.
 use crate::http::http;
+use base64::Engine;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tauri::Manager;
@@ -170,6 +171,41 @@ pub async fn provider_download(
     let path = dir.join(&name);
     std::fs::write(&path, &bytes).map_err(|e| e.to_string())?;
 
+    Ok(DownloadedAsset {
+        local_path: path.to_string_lossy().to_string(),
+        content_type,
+        width: None,
+        height: None,
+    })
+}
+
+/// Decode provider-returned base64 image bytes into the same local media cache
+/// used by downloaded assets. `cache_key` is app-generated metadata, never a path.
+#[tauri::command]
+pub fn cache_generated_asset(
+    app: tauri::AppHandle,
+    data: String,
+    content_type: String,
+    cache_key: String,
+) -> Result<DownloadedAsset, String> {
+    if !content_type.to_ascii_lowercase().starts_with("image/") {
+        return Err("generated asset must have an image content type".to_string());
+    }
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(data)
+        .map_err(|e| format!("invalid generated image data: {e}"))?;
+    if bytes.len() > 25 * 1024 * 1024 {
+        return Err("generated image exceeds the 25 MB cache limit".to_string());
+    }
+    let dir = app
+        .path()
+        .app_cache_dir()
+        .map_err(|e| e.to_string())?
+        .join("media");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let name = format!("{:x}.{}", hash_str(&cache_key), ext_for(&content_type));
+    let path = dir.join(name);
+    std::fs::write(&path, bytes).map_err(|e| e.to_string())?;
     Ok(DownloadedAsset {
         local_path: path.to_string_lossy().to_string(),
         content_type,

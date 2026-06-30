@@ -3,7 +3,7 @@
 // session and can be regenerated for a fresh set.
 import { generateText, Output } from "ai";
 import { z } from "zod";
-import { getModel } from "../ai/service";
+import { getModelFor } from "../ai/service";
 import type { ConceptRow } from "../store/repositories";
 
 const QuizSchema = z.object({
@@ -28,7 +28,7 @@ export async function generateQuiz(
 ): Promise<QuizQuestion[]> {
   const brief = briefSummary ? `\nKeep it aligned with the learner brief: ${briefSummary}` : "";
   const { output } = await generateText({
-    model: getModel(),
+    model: getModelFor("quiz"),
     output: Output.object({ schema: QuizSchema }),
     prompt: `Write a 2-4 question multiple-choice quick-check on "${concept.title}" (within "${topicTitle}").
 Each question has 3-4 choices; set answerIndex to the correct one (0-based); add a one-line

@@ -4,10 +4,12 @@
 import type { TutorMode } from "./generation/tutor";
 import { getRoute, DEFAULT_ROUTE_ID } from "./ai/routes";
 import { AI_TASKS, type AiTaskId } from "./ai/tasks";
+import type { ProviderSettingsEnvelope } from "./ai/text/registry";
 
 const TUTOR_MODE_KEY = "ascent-tutor-mode";
 const ROUTE_KEY = "ascent-route";
 const MODEL_KEY = "ascent-model";
+const PROVIDER_SETTINGS_KEY = "ascent-provider-settings";
 const THEME_KEY = "ascent-theme";
 const PREVIEW_WIDTH_KEY = "ascent-preview-width";
 const CHAT_PANEL_HEIGHT_KEY = "ascent-chat-panel-height";
@@ -69,6 +71,70 @@ export function setModelId(id: string) {
   localStorage.setItem(MODEL_KEY, id);
 }
 
+interface StoredProviderSettings extends ProviderSettingsEnvelope {
+  routeId: string;
+  modelId: string;
+}
+
+export interface ResolvedModelSelection {
+  routeId: string;
+  modelId: string;
+  providerSettings: ProviderSettingsEnvelope | null;
+}
+
+function providerSettingsKey(task?: AiTaskId): string {
+  return task ? `${PROVIDER_SETTINGS_KEY}:${task}` : PROVIDER_SETTINGS_KEY;
+}
+
+function readProviderSettings(task?: AiTaskId): StoredProviderSettings | null {
+  const raw = localStorage.getItem(providerSettingsKey(task));
+  if (!raw) return null;
+  try {
+    const value = JSON.parse(raw) as Partial<StoredProviderSettings>;
+    if (
+      typeof value.routeId !== "string" ||
+      typeof value.modelId !== "string" ||
+      typeof value.adapter !== "string" ||
+      typeof value.version !== "number"
+    ) {
+      return null;
+    }
+    return value as StoredProviderSettings;
+  } catch {
+    return null;
+  }
+}
+
+function matchingProviderSettings(
+  stored: StoredProviderSettings | null,
+  routeId: string,
+  modelId: string,
+): ProviderSettingsEnvelope | null {
+  if (!stored || stored.routeId !== routeId || stored.modelId !== modelId) return null;
+  return { adapter: stored.adapter, version: stored.version, value: stored.value };
+}
+
+export function getModelProviderSettings(
+  routeId: string = getRouteId(),
+  modelId: string = getModelId(),
+): ProviderSettingsEnvelope | null {
+  return matchingProviderSettings(readProviderSettings(), routeId, modelId);
+}
+
+export function setModelProviderSettings(
+  routeId: string,
+  modelId: string,
+  settings: ProviderSettingsEnvelope,
+): void {
+  localStorage.setItem(providerSettingsKey(), JSON.stringify({ routeId, modelId, ...settings }));
+}
+
+export function getModelSelection(): ResolvedModelSelection {
+  const routeId = getRouteId();
+  const modelId = getModelId();
+  return { routeId, modelId, providerSettings: getModelProviderSettings(routeId, modelId) };
+}
+
 // --- Per-task overrides (tasks.ts) ---
 // Resolution: explicit per-task setting → the task's registry default → the
 // global pick — each step validated against the task's route catalog, so a stale
@@ -104,6 +170,42 @@ export function setTaskModelId(task: AiTaskId, id: string | null) {
   else localStorage.setItem(`${MODEL_KEY}:${task}`, id);
 }
 
+export function getTaskModelProviderSettings(
+  task: AiTaskId,
+  routeId: string = getTaskRouteId(task),
+  modelId: string = getTaskModelId(task),
+): ProviderSettingsEnvelope | null {
+  const taskSettings = matchingProviderSettings(readProviderSettings(task), routeId, modelId);
+  if (taskSettings) return taskSettings;
+
+  // A scenario with no explicit pin inherits the complete default selection when
+  // its resolved route/model are the same. Registry-level task defaults (Haiku for
+  // widgets, for example) instead receive that provider adapter's own defaults.
+  if (!hasTaskOverride(task) && routeId === getRouteId() && modelId === getModelId()) {
+    return getModelProviderSettings(routeId, modelId);
+  }
+  return null;
+}
+
+export function setTaskModelProviderSettings(
+  task: AiTaskId,
+  routeId: string,
+  modelId: string,
+  settings: ProviderSettingsEnvelope,
+): void {
+  localStorage.setItem(providerSettingsKey(task), JSON.stringify({ routeId, modelId, ...settings }));
+}
+
+export function getTaskModelSelection(task: AiTaskId): ResolvedModelSelection {
+  const routeId = getTaskRouteId(task);
+  const modelId = getTaskModelId(task);
+  return {
+    routeId,
+    modelId,
+    providerSettings: getTaskModelProviderSettings(task, routeId, modelId),
+  };
+}
+
 /** True when the user has explicitly pinned this task's provider or model
  *  (as opposed to inheriting the default — possibly via a registry default). */
 export function hasTaskOverride(task: AiTaskId): boolean {
@@ -117,6 +219,7 @@ export function hasTaskOverride(task: AiTaskId): boolean {
 export function clearTaskOverride(task: AiTaskId) {
   localStorage.removeItem(`${MODEL_KEY}:${task}`);
   localStorage.removeItem(`${ROUTE_KEY}:${task}`);
+  localStorage.removeItem(providerSettingsKey(task));
 }
 
 /** What the task would resolve to with no explicit override: its registry
@@ -144,13 +247,24 @@ export function setWebSearchEnabled(on: boolean): void {
 }
 
 const COMPLETENESS_KEY = "ascent-completeness-pass";
-/** Visual completeness pass (§3b) — gated, default OFF. Enable only if spike #5 shows the
- *  domain budget (§3a) alone left real coverage gaps; otherwise we don't carry the 2nd pass. */
+/** Legacy flag for the old zero-visual completeness pass. The active visual-quality audit
+ *  uses VISUAL_AUDIT_KEY below; keep these accessors so older local settings don't break. */
 export function isCompletenessPassEnabled(): boolean {
   return localStorage.getItem(COMPLETENESS_KEY) === "true";
 }
 export function setCompletenessPassEnabled(on: boolean): void {
   localStorage.setItem(COMPLETENESS_KEY, on ? "true" : "false");
+}
+
+const VISUAL_AUDIT_KEY = "ascent-visual-audit";
+/** Visual audit/repair pass. Default ON because Ascent's lesson identity is hyper-visual:
+ *  the pass is not deterministic routing; it asks a director model whether the lesson's
+ *  own mechanisms, comparisons, and transformations have enough visual teaching support. */
+export function isVisualAuditEnabled(): boolean {
+  return localStorage.getItem(VISUAL_AUDIT_KEY) !== "false";
+}
+export function setVisualAuditEnabled(on: boolean): void {
+  localStorage.setItem(VISUAL_AUDIT_KEY, on ? "true" : "false");
 }
 
 export const THEMES = ["cream", "paper", "dark"] as const;

@@ -5,7 +5,7 @@
 import { generateText, Output } from "ai";
 import type { AnthropicLanguageModelOptions } from "@ai-sdk/anthropic";
 import { z } from "zod";
-import { getModel } from "../ai/service";
+import { getModelFor } from "../ai/service";
 import type { ConceptRow } from "../store/repositories";
 import type { RubricScores, TeachAnnotation, TeachAudience, ExistingConcept } from "../types";
 
@@ -114,7 +114,7 @@ export async function gradeTeachBack(
         .join("\n")}`
     : "";
   const { output } = await generateText({
-    model: getModel(),
+    model: getModelFor("teachback"),
     output: Output.object({ schema: GradeSchema }),
     providerOptions: {
       anthropic: {

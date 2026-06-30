@@ -4,6 +4,7 @@
 import type { ExistingConcept } from "../types";
 import { assembleVisualGuidance } from "../visuals/authoring";
 import { inferDomain, kindsForDomains, type Domain } from "../visuals/catalog";
+import { renderVisualBriefForPrompt, visualToolkitPrompt, type VisualBrief } from "./visualPlan";
 
 export interface LessonContext {
   topicTitle: string;
@@ -30,6 +31,9 @@ export interface LessonPromptParts {
   /** Web search (web-search spec §5): a bounded, guarded "live web findings" block inserted after
    *  continuity so the lesson can draw on current information. Empty by default → output unchanged. */
   grounding?: string;
+  /** LLM-authored visual teaching brief: learning moments to preserve, with tool suggestions
+   *  that are intentionally not a whitelist. */
+  visualBrief?: VisualBrief | null;
 }
 
 export function buildLessonPrompt(
@@ -53,18 +57,18 @@ export function buildLessonPrompt(
         .join("\n")}`
     : "";
 
-  // Domain-aware visual budget (§3a): which visual kinds to actively reach for. Prefer the
-  // LLM-classified `domains` stored on the concept (outline/fork); fall back to cheap keyword
-  // inference only for legacy/untagged concepts. Guidance with teeth, not a hard quota.
+  // Domain-aware visual hints (§3a): useful suggestions from the catalog, not routing.
+  // The visual director and lesson author can use any supported visual tool.
   const domains = concept.domains?.length
     ? concept.domains
     : [inferDomain(`${ctx.topicTitle} ${concept.title}`)];
-  const budgetKinds = kindsForDomains(domains)
+  const hintKinds = kindsForDomains(domains)
     .map((d) => d.label)
     .join(", ");
-  const budgetLine = budgetKinds
-    ? `VISUAL BUDGET — this reads as a ${domains.join(" / ")} lesson. Actively reach for these visuals where the content genuinely supports them: ${budgetKinds}. Place each in situ next to the relevant prose; never force a decorative visual where none helps.`
+  const hintLine = hintKinds
+    ? `VISUAL HINTS — this currently reads as a ${domains.join(" / ")} lesson. The catalog suggests these tools may fit: ${hintKinds}. Treat this as inspiration, not a whitelist; use any supported visual tool when it teaches the current lesson better.`
     : "";
+  const visualBrief = renderVisualBriefForPrompt(parts.visualBrief ?? null);
 
   return `You are an exceptional tutor — the kind whose explanations make a hard idea
 suddenly click — writing ONE focused lesson within a larger learning tree. Your goal is
@@ -78,6 +82,9 @@ HOW TO EXPLAIN (this matters more than how much you cover):
 - Start from intuition. Before any formalism, give the learner a way to picture or feel
   what's going on and why it matters — a plain-language framing, an analogy, or a motivating
   question. Earn the formal definition; don't open with it.
+- Ascent is hyper-visual. For every major mechanism, structure, comparison, process, state
+  change, or transformation, first ask what the learner should see, trace, compare, or manipulate.
+  Let equations, code, and prose support that visual model instead of replacing it.
 - Build up in small steps, one idea per paragraph. Introduce a piece, make it land, then add
   the next. Never stack three new ideas into one dense paragraph.
 - Show, don't just state. Include at least one concrete worked example — small real numbers,
@@ -91,6 +98,10 @@ HOW TO EXPLAIN (this matters more than how much you cover):
   no "in this lesson we will".
 - Do not use Markdown emphasis markers such as **bold** or *italic* in any text field. Write
   normal prose; the app handles visual styling.
+
+${visualToolkitPrompt(domains)}
+
+${visualBrief}
 
 FORMAT:
 - 8-14 blocks, mostly short "paragraph" blocks of 2-4 sentences (break up anything longer).
@@ -132,16 +143,16 @@ FORMAT:
   (\`mindmap\`), or events (\`timeline\`). Keep it focused — a handful of nodes. Use VALID Mermaid
   syntax only. Optional \`title\` caption; refer to it in the prose.
 - A "widget" block embeds a small INTERACTIVE component that a separate builder constructs
-  from your spec while you keep writing. Use AT MOST 1-2 per lesson, and ONLY when doing beats
+  from your spec while you keep writing. Use it when interaction teaches better than passive
   reading — the learner manipulates something and watches a response (drag a slider to reshape
   a curve, step through an algorithm's states, toggle a parameter and see the output move).
   Set \`widgetId\` (short kebab-case slug, unique in this lesson), \`title\` (3-7 words), and
   \`spec\`: 2-5 sentences naming the variables the learner controls (with ranges), what responds
   and how, and the one insight the interaction should surface. The builder sees ONLY your spec,
   never this lesson — make it self-contained. Refer to the widget from the surrounding prose.
-  Most lessons need ZERO widgets; never use one for decoration, or for anything a chart or
-  diagram already shows.
-${budgetLine ? `${budgetLine}\n` : ""}${assembleVisualGuidance()}
+  Prefer the fewest widgets that earn their place; multiple widgets are fine when each teaches
+  a distinct manipulation or state change.
+${hintLine ? `${hintLine}\n` : ""}${assembleVisualGuidance()}
 - Every block must have content: paragraph and callout need non-empty text, section needs a label, code needs non-empty text, widget needs widgetId + title + spec.${parts.formatAddendum ? `\n${parts.formatAddendum}` : ""}
 
 FINISH by recommending what to explore next, split into two lists — this is how the learner grows

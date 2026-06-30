@@ -3,9 +3,8 @@
 // call sites (Settings reads this to offer per-task overrides). Dependency-light
 // (models.ts only, like routes.ts) so settings/service import it without cycles.
 //
-// Migration policy: only `widget` resolves through getModelFor() today; the other
-// ids are reserved so existing getModel() call sites can migrate one at a time as
-// each earns a settings knob.
+// Every text-generation call resolves through getModelFor(task), so every row in
+// Settings controls a real request path rather than being aspirational UI.
 import { MODELS } from "./models";
 
 /** The class of model capability a task requires. Absent on a task = "textGeneration". */
@@ -48,7 +47,7 @@ export const AI_TASKS: Record<AiTaskId, AiTask> = {
   tutor: { id: "tutor", label: "Chat tutor" },
   teachback: { id: "teachback", label: "Teach-back grading" },
   quiz: { id: "quiz", label: "Quizzes" },
-  micro: { id: "micro", label: "Inline definitions" },
+  micro: { id: "micro", label: "Inline definitions", defaultModelId: MODELS.fast },
   intake: { id: "intake", label: "Topic intake" },
   outline: { id: "outline", label: "Topic outlines" },
   canon: { id: "canon", label: "Course canon", requiredCapability: "textGeneration" },
@@ -56,7 +55,7 @@ export const AI_TASKS: Record<AiTaskId, AiTask> = {
   coherence: { id: "coherence", label: "Coherence drift-check", defaultModelId: MODELS.fast, requiredCapability: "textGeneration" },
   revise: { id: "revise", label: "Lesson revision", requiredCapability: "textGeneration" },
   embed: { id: "embed", label: "Embeddings", requiredCapability: "embeddings" },
-  director: { id: "director", label: "Visual completeness", defaultModelId: MODELS.fast, requiredCapability: "textGeneration" },
+  director: { id: "director", label: "Visual director", defaultModelId: MODELS.fast, requiredCapability: "textGeneration" },
   figure: { id: "figure", label: "Figure generation", defaultModelId: MODELS.fast, requiredCapability: "textGeneration" },
   // The native search-only call (anthropicNative) — a text model + the web_search server tool.
   // Cheap by default (Haiku); the FEATURE gate is hasSearchCapability() in search/registry, not here.

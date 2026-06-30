@@ -1,7 +1,7 @@
 // Ordered, fire-and-forget post-stream pipeline. Steps run AFTER a lesson is
 // persisted + published (off the render critical path); a step throwing is
 // isolated and logged, never aborting siblings. Later waves register steps here
-// (lesson digest, canon merge, visual completeness pass, media job scan).
+// (visual audit, lesson digest, canon merge, media job scan).
 import type { ConceptRow } from "../store/repositories";
 import type { LessonContext } from "./lessonPrompt";
 import type { generateLesson } from "./lesson";

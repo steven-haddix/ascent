@@ -34,8 +34,8 @@ export const concepts = sqliteTable("concepts", {
     .notNull()
     .default("outline"),
   remedial: integer("remedial", { mode: "boolean" }).notNull().default(false),
-  /** subject domains (multi-tag), classified by the LLM at outline/fork time — drives the
-   *  domain-aware visual budget (§3a). Empty = fall back to keyword inference. */
+  /** subject domains (multi-tag), classified by the LLM at outline/fork time — gives
+   *  prompt-time visual hints, never a visual-tool whitelist. Empty = fall back to keyword inference. */
   domains: text("domains", { mode: "json" }).$type<Domain[]>().notNull().default(sql`'[]'`),
   createdAt: integer("created_at").notNull(),
 });
@@ -223,7 +223,7 @@ export const usageEvents = sqliteTable("usage_events", {
   /** route/provider id the request went through (routes.ts) */
   provider: text("provider").notNull(),
   /** AI task id (tasks.ts) when the call came through getModelFor — attributes
-   *  spend to a use case; null for legacy getModel() call sites */
+   *  spend to a use case; null only for legacy ledger rows */
   task: text("task"),
   /** model id as sent to the provider (may be namespaced through a gateway) */
   model: text("model").notNull(),

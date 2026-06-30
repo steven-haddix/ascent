@@ -17,6 +17,7 @@ const VISUAL_KINDS = new Set<Block["kind"]>([
   "graph",
   "map",
   "media",
+  "generated-image",
 ]);
 
 function VizItem({ block, conceptId }: { block: Block; conceptId: string }) {
@@ -39,7 +40,7 @@ export function VizLens({ concept }: LensProps) {
     return <div className="p-4 font-sans text-[12.5px] text-ink-3">No visuals in this lesson yet.</div>;
   }
   return (
-    <div className="flex flex-col gap-7 p-1 font-sans">
+    <div className="flex h-full flex-col gap-7 overflow-y-auto p-1 font-sans">
       {visuals.map((b, i) => (
         <div key={i}>
           {b.title && <div className="mb-1 text-[11.5px] font-medium uppercase tracking-wide text-ink-3">{b.title}</div>}

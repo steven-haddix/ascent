@@ -2,7 +2,7 @@
 // front (fast, navigable); lesson bodies generate lazily on visit in M3.
 import { generateText, Output } from "ai";
 import { z } from "zod";
-import { getModel } from "../ai/service";
+import { getModelFor } from "../ai/service";
 import { topicRepo, conceptRepo } from "../store/repositories";
 import { formatHistory } from "./intake";
 import { seedCanon } from "./canon";
@@ -68,7 +68,7 @@ ${formatHistory(brief.answers)}`
     ? `\n\n${grounding}\nUse these current findings to make the tree reflect the field as it stands TODAY: prefer current subtopics and terminology, fold in genuinely important recent developments, and don't anchor only to older framings. Ignore anything off-topic or low-quality.`
     : "";
   const { output } = await generateText({
-    model: getModel(),
+    model: getModelFor("outline"),
     output: Output.object({ schema: OutlineSchema }),
     prompt: `You are mapping a subject into a learning tree for a curious learner.
 

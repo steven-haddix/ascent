@@ -15,6 +15,7 @@ import {
   isGraphBlock,
   isMapBlock,
   isMediaBlock,
+  isGeneratedImageBlock,
 } from "../../core/visuals/guards";
 import { TimelineBlock } from "./TimelineBlock";
 import { SpectrumBlock } from "./SpectrumBlock";
@@ -22,6 +23,7 @@ import { FigureBlock } from "./FigureBlock";
 import { GraphBlock } from "./GraphBlock";
 import { MapBlock } from "./MapBlock";
 import { MediaBlock } from "./MediaBlock";
+import { GeneratedImageBlock } from "./GeneratedImageBlock";
 
 export interface VisualRendererDefinition {
   /** per-kind gate: is this block well-formed enough to render? */
@@ -38,4 +40,5 @@ export const visualRenderers: Partial<Record<Block["kind"], VisualRendererDefini
   graph: { isRenderable: isGraphBlock, Component: GraphBlock },
   map: { isRenderable: isMapBlock, Component: MapBlock },
   media: { isRenderable: isMediaBlock, Component: MediaBlock },
+  "generated-image": { isRenderable: isGeneratedImageBlock, Component: GeneratedImageBlock },
 };

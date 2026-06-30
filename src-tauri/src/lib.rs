@@ -50,7 +50,8 @@ pub fn run() {
             ai::ai_request,
             ai::ai_stream,
             media::provider_request,
-            media::provider_download
+            media::provider_download,
+            media::cache_generated_asset
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

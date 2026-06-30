@@ -13,6 +13,7 @@ import { LessonSchema } from "./lessonSchema";
 import { buildLessonPrompt, type LessonContext } from "./lessonPrompt";
 import { buildContinuitySection } from "./continuity";
 import { groundingForLesson } from "./resourceJobs";
+import { planVisualBrief } from "./visualPlan";
 
 export type { LessonContext } from "./lessonPrompt";
 
@@ -42,6 +43,7 @@ export async function generateLesson(
   // no capability / timeout / error, so generation is never blocked, and it stashes results for the
   // post-stream persistResources step.
   const grounding = await groundingForLesson(concept, ctx, signal);
+  const visualBrief = await planVisualBrief(concept, ctx, signal);
 
   const result = streamText({
     model: getModelFor("lesson"),
@@ -54,7 +56,7 @@ export async function generateLesson(
       } satisfies AnthropicLanguageModelOptions,
     },
     abortSignal: signal,
-    prompt: buildLessonPrompt(concept, ctx, { continuity, grounding }),
+    prompt: buildLessonPrompt(concept, ctx, { continuity, grounding, visualBrief }),
   });
 
   // Capture output now and pre-attach a catch: on abort we throw out of the
@@ -80,7 +82,17 @@ export async function generateLesson(
   const blocks = output.blocks as Block[];
   // Code/Viz lenses are declared only when there's something to surface — keeps the
   // right pane uncluttered for lessons that don't have it.
-  const VISUAL_KINDS = new Set<Block["kind"]>(["chart", "diagram", "timeline", "spectrum", "figure", "graph", "map", "media"]);
+  const VISUAL_KINDS = new Set<Block["kind"]>([
+    "chart",
+    "diagram",
+    "timeline",
+    "spectrum",
+    "figure",
+    "graph",
+    "map",
+    "media",
+    "generated-image",
+  ]);
   const hasCode = blocks.some((b) => b.kind === "code");
   const hasVisual = blocks.some((b) => VISUAL_KINDS.has(b.kind));
   const lenses: LensId[] = ["notes", "quiz", "chat", "teach"];

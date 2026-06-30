@@ -56,7 +56,7 @@ export const visualAuthoring: Partial<Record<VisualKind, VisualPromptDefinition>
   },
   figure: {
     kind: "figure",
-    guidance: `- A "figure" block is a LABELED DIAGRAM — the workhorse for "the parts of X" (anatomy, a cathedral, a cell, a sonnet's structure, a machine). Draw a clean schematic in \`figure.svg\` as a SELF-CONTAINED SVG with viewBox="0 0 100 100" (simple shapes/paths/strokes; muted fills or currentColor; NO <script>, NO external images, NO raster). Add \`labels\` (each {text, at:{x,y}} in 0..100 coords) pointing at the parts. Always set a one-line \`alt\`. Reach for it where a picture of structure teaches faster than prose.`,
+    guidance: `- A "figure" block is a LABELED DIAGRAM — the workhorse for "the parts of X" (anatomy, a cathedral, a cell, a sonnet's structure, a machine, a neural network layer, a tensor-shape transform, a model architecture). Draw a clean schematic in \`figure.svg\` as a SELF-CONTAINED SVG with viewBox="0 0 100 100" (simple shapes/paths/strokes; muted fills or currentColor; NO <script>, NO external images, NO raster). Add \`labels\` (each {text, at:{x,y}} in 0..100 coords) pointing at the parts. Always set a one-line \`alt\`. Reach for it where a picture of structure teaches faster than prose.`,
     schema: {
       figure: z
         .object({ svg: z.string().optional(), mediaId: z.string().optional() })
@@ -114,6 +114,16 @@ export const visualAuthoring: Partial<Record<VisualKind, VisualPromptDefinition>
       mediaId: z.string().optional().describe("for `media` blocks ONLY: a kebab-case slug unique within this lesson"),
       query: z.string().optional().describe("for `media` blocks ONLY: the image search query"),
       purpose: z.string().optional().describe("for `media` blocks ONLY: what the image is for (also used as alt text)"),
+      alt: altField,
+    },
+  },
+  "generated-image": {
+    kind: "generated-image",
+    guidance: `- A "generated-image" block creates a rich AI-GENERATED ILLUSTRATION — use it for a scene, visual analogy, reconstruction, atmosphere, or spatial intuition that would be awkward as SVG. It complements rather than replaces exact charts, maps, diagrams, and sourced media. Use it only when the VISUAL TOOLKIT says an image provider is configured. Set a stable \`mediaId\` (kebab slug), a vivid self-contained \`prompt\` describing subject, composition, viewpoint, and teaching focus, plus one-line \`purpose\` and \`alt\`. Avoid important text inside the image and never rely on it for exact labels, measurements, or factual evidence. A job generates and caches the image; you NEVER write a URL.`,
+    schema: {
+      mediaId: z.string().optional().describe("for `generated-image` blocks ONLY: a kebab-case slug unique within this lesson"),
+      prompt: z.string().optional().describe("for `generated-image` blocks ONLY: a vivid self-contained generation prompt"),
+      purpose: z.string().optional().describe("for `generated-image` blocks ONLY: the teaching job this illustration performs"),
       alt: altField,
     },
   },

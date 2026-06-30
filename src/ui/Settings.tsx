@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { secretStore } from "../core/secrets";
 import { ROUTE_OPTIONS, getRoute, type Route, type RouteModel } from "../core/ai/routes";
 import { AI_TASKS, type AiTask, type AiTaskId } from "../core/ai/tasks";
+import type { ProviderSettingsEnvelope } from "../core/ai/text/registry";
 import {
   getModelId,
   setModelId,
@@ -14,6 +15,10 @@ import {
   hasTaskOverride,
   clearTaskOverride,
   getTaskInheritedModelId,
+  getModelProviderSettings,
+  setModelProviderSettings,
+  getTaskModelProviderSettings,
+  setTaskModelProviderSettings,
   getTutorMode,
   setTutorMode,
   isWebSearchEnabled,
@@ -26,6 +31,7 @@ import { UsageSection } from "./UsageSection";
 import { mediaProviderRegistry, isMediaProviderEnabled, setMediaProviderEnabled } from "../core/media/registry";
 import { aiProviderRegistry, isAiProviderEnabled, setAiProviderEnabled } from "../core/ai/providers/registry";
 import { searchProviderRegistry, isSearchProviderEnabled, setSearchProviderEnabled } from "../core/search/registry";
+import { ProviderSettingsPanel } from "./providerSettings/registry";
 
 function SectionLabel({ children }: { children: ReactNode }) {
   return <div className="mb-2 text-[10.5px] font-medium uppercase tracking-wider text-ink-3">{children}</div>;
@@ -264,6 +270,7 @@ function ScenarioRow({
   const overridden = hasTaskOverride(task.id);
   const route = getRoute(getTaskRouteId(task.id));
   const modelId = getTaskModelId(task.id);
+  const providerSettings = getTaskModelProviderSettings(task.id, route.id, modelId);
 
   const defaultRoute = getRoute(getRouteId());
   const inheritedLabel = modelLabel(defaultRoute, getTaskInheritedModelId(task.id));
@@ -281,6 +288,16 @@ function ScenarioRow({
     clearTaskOverride(task.id);
     onChanged();
     onToggle();
+  };
+
+  const changeProviderSettings = (settings: ProviderSettingsEnvelope) => {
+    // Editing provider options makes the whole visible selection explicit.
+    if (!overridden) {
+      setTaskRouteId(task.id, route.id);
+      setTaskModelId(task.id, modelId);
+    }
+    setTaskModelProviderSettings(task.id, route.id, modelId, settings);
+    onChanged();
   };
 
   return (
@@ -326,6 +343,13 @@ function ScenarioRow({
             }}
           />
           <ModelList models={route.models} selectedId={overridden ? modelId : null} onPick={pick} />
+          <ProviderSettingsPanel
+            adapterId={route.adapterId}
+            modelId={modelId}
+            task={task.id}
+            envelope={providerSettings}
+            onChange={changeProviderSettings}
+          />
         </div>
       )}
     </div>
@@ -581,6 +605,15 @@ export function Settings({
               <div className="mt-1.5 rounded-md border border-rule bg-surface-2/40 px-3 py-3">
                 <ProviderPicker selectedId={defaultRoute.id} onPick={chooseDefaultRoute} />
                 <ModelList models={defaultRoute.models} selectedId={defaultModelId} onPick={chooseDefaultModel} />
+                <ProviderSettingsPanel
+                  adapterId={defaultRoute.adapterId}
+                  modelId={defaultModelId}
+                  envelope={getModelProviderSettings(defaultRoute.id, defaultModelId)}
+                  onChange={(settings) => {
+                    setModelProviderSettings(defaultRoute.id, defaultModelId, settings);
+                    refresh();
+                  }}
+                />
               </div>
             )}
             <p className="mt-1.5 text-[11px] text-ink-4">
@@ -613,9 +646,9 @@ export function Settings({
 
           {tab === "sources" && (
             <>
-              {/* Media providers — where lessons pull real images/assets from */}
+              {/* Visual asset providers — sourced and generated imagery */}
               <section>
-                <SectionLabel>Media sources</SectionLabel>
+                <SectionLabel>Image sources</SectionLabel>
                 <div className="overflow-hidden rounded-md border border-rule">
                   {mediaProviderRegistry.list().map((p, i) => (
                     <SourceRow
@@ -634,8 +667,8 @@ export function Settings({
                   ))}
                 </div>
                 <p className="mt-1.5 text-[11px] text-ink-4">
-                  Real images for lessons (figures, maps). Wikimedia Commons needs no key. Disabled or offline,
-                  lessons fall back to vector figures and prose.
+                  Wikimedia supplies sourced images; OpenAI and Gemini create illustrations on demand. Generated
+                  images are labeled and may be inaccurate. With providers disabled, lessons use native visuals and prose.
                 </p>
               </section>
 

@@ -21,6 +21,9 @@ HOW TO EXPLAIN (this matters more than how much you cover):
 - Start from intuition. Before any formalism, give the learner a way to picture or feel
   what's going on and why it matters — a plain-language framing, an analogy, or a motivating
   question. Earn the formal definition; don't open with it.
+- Ascent is hyper-visual. For every major mechanism, structure, comparison, process, state
+  change, or transformation, first ask what the learner should see, trace, compare, or manipulate.
+  Let equations, code, and prose support that visual model instead of replacing it.
 - Build up in small steps, one idea per paragraph. Introduce a piece, make it land, then add
   the next. Never stack three new ideas into one dense paragraph.
 - Show, don't just state. Include at least one concrete worked example — small real numbers,
@@ -34,6 +37,28 @@ HOW TO EXPLAIN (this matters more than how much you cover):
   no "in this lesson we will".
 - Do not use Markdown emphasis markers such as **bold** or *italic* in any text field. Write
   normal prose; the app handles visual styling.
+
+VISUAL TOOLKIT:
+Catalog hints from this concept's current domains (science): chart, diagram, widget, figure, graph, media, generated-image. Treat these as hints only; they are not a whitelist.
+Available visual tools:
+- chart: quantitative comparisons, trends, curves, parameter/computation shapes
+- diagram: Mermaid process flows, pipelines, side-by-side structures, sequences, state changes
+- figure: labeled schematic SVGs for parts, shapes, architecture, tensor layouts, physical or conceptual structure
+- generated-image: rich generated illustrations for scenes, reconstructions, visual analogies, and spatial intuition—not exact evidence or data
+- graph: node-link relationships, dependencies, influence webs, taxonomies
+- map: spatial layouts, geographic or conceptual territories, routes, layered progress across places or spaces
+- media: provider-sourced real images when authenticity teaches better than a schematic
+- spectrum: continuums, gradients, trade-off axes, positions between poles
+- table: compact side-by-side comparison or structured facts
+- timeline: chronology, evolution, historical sequence, staged development
+- widget: interactive manipulation: sliders, toggles, step-throughs, simulations, live comparisons
+Generated illustrations are not configured. Do not emit generated-image blocks; choose another visual tool.
+Renderer catalog: chart (inline), diagram (inline), widget (job), timeline (inline), spectrum (inline), figure (inline), graph (inline), map (inline), media (job), generated-image (job).
+
+VISUAL TEACHING CONTRACT:
+- Before writing a mechanism-heavy explanation, decide what the learner should see, compare, trace, or manipulate.
+- Use any supported visual tool that teaches the current concept well; domain hints are not limits.
+- Equations and code are supporting artifacts when a visual model would make the mechanism clearer.
 
 FORMAT:
 - 8-14 blocks, mostly short "paragraph" blocks of 2-4 sentences (break up anything longer).
@@ -75,22 +100,23 @@ FORMAT:
   (\`mindmap\`), or events (\`timeline\`). Keep it focused — a handful of nodes. Use VALID Mermaid
   syntax only. Optional \`title\` caption; refer to it in the prose.
 - A "widget" block embeds a small INTERACTIVE component that a separate builder constructs
-  from your spec while you keep writing. Use AT MOST 1-2 per lesson, and ONLY when doing beats
+  from your spec while you keep writing. Use it when interaction teaches better than passive
   reading — the learner manipulates something and watches a response (drag a slider to reshape
   a curve, step through an algorithm's states, toggle a parameter and see the output move).
   Set \`widgetId\` (short kebab-case slug, unique in this lesson), \`title\` (3-7 words), and
   \`spec\`: 2-5 sentences naming the variables the learner controls (with ranges), what responds
   and how, and the one insight the interaction should surface. The builder sees ONLY your spec,
   never this lesson — make it self-contained. Refer to the widget from the surrounding prose.
-  Most lessons need ZERO widgets; never use one for decoration, or for anything a chart or
-  diagram already shows.
-VISUAL BUDGET — this reads as a science lesson. Actively reach for these visuals where the content genuinely supports them: Chart, Diagram, Widget, Figure, Graph, Image. Place each in situ next to the relevant prose; never force a decorative visual where none helps.
+  Prefer the fewest widgets that earn their place; multiple widgets are fine when each teaches
+  a distinct manipulation or state change.
+VISUAL HINTS — this currently reads as a science lesson. The catalog suggests these tools may fit: Chart, Diagram, Widget, Figure, Graph, Image, Generated illustration. Treat this as inspiration, not a whitelist; use any supported visual tool when it teaches the current lesson better.
 - A "timeline" block places events on a time/era axis — REACH FOR IT for history, a biography, the evolution of an idea, or any narrative with chronology. Set \`events\` (each {at, label, detail?}) where \`at\` is a short date/era label ("1914", "Late Bronze Age", "Act II") and \`label\` names what happened; optional \`lanes\` group parallel tracks. Always set a one-line \`alt\` describing the sequence. Prefer it over a prose list of dates.
 - A "spectrum" block places items along a continuum — REACH FOR IT for a political spectrum, a scale (e.g. Mohs hardness), a gradient of positions, or any "where does X sit between two poles". Set \`axis\` ({min, max, optional end/tick labels}) and \`items\` (each {label, at} with \`at\` between min and max). Always set a one-line \`alt\`. Prefer it over prose when the point is relative position.
-- A "figure" block is a LABELED DIAGRAM — the workhorse for "the parts of X" (anatomy, a cathedral, a cell, a sonnet's structure, a machine). Draw a clean schematic in \`figure.svg\` as a SELF-CONTAINED SVG with viewBox="0 0 100 100" (simple shapes/paths/strokes; muted fills or currentColor; NO <script>, NO external images, NO raster). Add \`labels\` (each {text, at:{x,y}} in 0..100 coords) pointing at the parts. Always set a one-line \`alt\`. Reach for it where a picture of structure teaches faster than prose.
+- A "figure" block is a LABELED DIAGRAM — the workhorse for "the parts of X" (anatomy, a cathedral, a cell, a sonnet's structure, a machine, a neural network layer, a tensor-shape transform, a model architecture). Draw a clean schematic in \`figure.svg\` as a SELF-CONTAINED SVG with viewBox="0 0 100 100" (simple shapes/paths/strokes; muted fills or currentColor; NO <script>, NO external images, NO raster). Add \`labels\` (each {text, at:{x,y}} in 0..100 coords) pointing at the parts. Always set a one-line \`alt\`. Reach for it where a picture of structure teaches faster than prose.
 - A "graph" block shows node–link RELATIONSHIPS — causes/influences, who-shaped-whom, a taxonomy, a dependency web. Emit \`nodes\` (each {id, label?, group?}) and \`edges\` (each {from, to, label?} referencing node ids). The app lays it out (force-directed) — you emit DATA, never coordinates. Always set a one-line \`alt\`. Reach for it when the point is how things connect, not a sequence or a quantity.
 - A "map" block places marks on a geographic basemap — locations or routes. Set \`projection\` ("world" or "mercator") and \`marks\` (each {kind:"pin", coords:[lon,lat], label?}). The app renders the basemap and projects your marks — you emit DATA, never geometry. Always set a one-line \`alt\`. Reach for it for anything inherently spatial.
 - A "media" block places a REAL provider-sourced image (a historical photo, an artwork, a portrait, a specimen) — reach for it when an authentic image teaches better than a drawing. Set a stable \`mediaId\` (kebab slug, unique in this lesson), a precise \`query\` (what to search for), and a one-line \`purpose\` (also used as alt text). A job resolves and caches it with attribution; you NEVER write a URL.
+- A "generated-image" block creates a rich AI-GENERATED ILLUSTRATION — use it for a scene, visual analogy, reconstruction, atmosphere, or spatial intuition that would be awkward as SVG. It complements rather than replaces exact charts, maps, diagrams, and sourced media. Use it only when the VISUAL TOOLKIT says an image provider is configured. Set a stable \`mediaId\` (kebab slug), a vivid self-contained \`prompt\` describing subject, composition, viewpoint, and teaching focus, plus one-line \`purpose\` and \`alt\`. Avoid important text inside the image and never rely on it for exact labels, measurements, or factual evidence. A job generates and caches the image; you NEVER write a URL.
 - Every block must have content: paragraph and callout need non-empty text, section needs a label, code needs non-empty text, widget needs widgetId + title + spec.
 
 FINISH by recommending what to explore next, split into two lists — this is how the learner grows

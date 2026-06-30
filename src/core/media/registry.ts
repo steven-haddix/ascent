@@ -2,6 +2,8 @@
 // and their non-secret options live in localStorage; secrets live in the Keychain via
 // secretStore keyed `provider:<id>`. v1 ships Wikimedia (image, no key) enabled by default.
 import type { MediaKind, MediaProviderMeta } from "./types";
+import { geminiImages } from "./providers/geminiImages";
+import { openaiImages } from "./providers/openaiImages";
 import { wikimedia } from "./providers/wikimedia";
 
 const registered = new Map<string, MediaProviderMeta>();
@@ -10,7 +12,8 @@ const ENABLED_KEY = "ascent-media-providers"; // JSON string[] of enabled provid
 const DEFAULT_ENABLED = ["wikimedia"]; // keyless, safe to enable out of the box
 
 function enabledIds(): string[] {
-  const raw = typeof localStorage !== "undefined" ? localStorage.getItem(ENABLED_KEY) : null;
+  const storage = typeof localStorage !== "undefined" && typeof localStorage.getItem === "function" ? localStorage : null;
+  const raw = storage?.getItem(ENABLED_KEY) ?? null;
   if (!raw) return DEFAULT_ENABLED;
   try {
     const ids = JSON.parse(raw) as string[];
@@ -43,3 +46,5 @@ export const mediaProviderRegistry = {
 
 // Register built-in providers.
 mediaProviderRegistry.register(wikimedia);
+mediaProviderRegistry.register(openaiImages);
+mediaProviderRegistry.register(geminiImages);

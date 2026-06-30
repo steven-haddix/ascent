@@ -11,8 +11,9 @@ import { registerFinalizationStep, runFinalization } from "./finalization";
 import { generateDigest } from "./digest";
 import { mergeDigestIntoCanon } from "./canon";
 import { scanForMediaJobs } from "./mediaJobs";
+import { scanForGeneratedImageJobs } from "./generatedImageJobs";
 import { persistResources } from "./resourceJobs";
-import { runCompletenessPass } from "./director";
+import { runVisualAuditPass } from "./director";
 import { indexDigest } from "./semanticIndex";
 import { lessonRepo, type ConceptRow } from "../store/repositories";
 import { queryClient } from "../store/queryClient";
@@ -26,6 +27,12 @@ registerFinalizationStep({
   order: 10,
   run: ({ concept, ctx, lesson }) =>
     scanForWidgetJobs(concept, { topicTitle: ctx.topicTitle, path: ctx.path }, lesson.blocks, true),
+});
+
+registerFinalizationStep({
+  name: "visual-audit",
+  order: 15,
+  run: ({ concept, ctx, lesson }) => runVisualAuditPass(concept, ctx, lesson),
 });
 
 registerFinalizationStep({
@@ -47,6 +54,12 @@ registerFinalizationStep({
   run: ({ concept, lesson }) => scanForMediaJobs(concept.id, lesson.blocks),
 });
 
+registerFinalizationStep({
+  name: "generated-images",
+  order: 31,
+  run: ({ concept, lesson }) => scanForGeneratedImageJobs(concept.id, lesson.blocks),
+});
+
 // Web search (spec §5): persist the resources the pre-generation search stashed — REPLACE, off the
 // render critical path, reusing the SAME results (never a second search). No-op on a cache-hit
 // regeneration that didn't search.
@@ -54,12 +67,6 @@ registerFinalizationStep({
   name: "resources",
   order: 35,
   run: ({ concept }) => persistResources(concept.id),
-});
-
-registerFinalizationStep({
-  name: "completeness",
-  order: 40,
-  run: ({ concept, ctx, lesson }) => runCompletenessPass(concept, ctx, lesson),
 });
 
 export interface LessonStreamState {

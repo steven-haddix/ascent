@@ -5,7 +5,7 @@
 // wave after the first is answered. Capped at MAX_WAVES so round-trips stay bounded.
 import { generateText, Output } from "ai";
 import { z } from "zod";
-import { getModel } from "../ai/service";
+import { getModelFor } from "../ai/service";
 import type { IntakeAnswer, IntakeQuestion } from "../types";
 
 /** Either the next batch of questions to ask, or the AI's final understanding. */
@@ -80,7 +80,7 @@ export async function planWave(
   waveIndex: number,
 ): Promise<IntakeWave> {
   const { output } = await generateText({
-    model: getModel(),
+    model: getModelFor("intake"),
     output: Output.object({ schema: WaveSchema }),
     prompt: `You are interviewing a learner before building their learning tree on "${title}".
 

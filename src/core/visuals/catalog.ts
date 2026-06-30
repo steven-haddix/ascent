@@ -27,6 +27,7 @@ export type VisualKind =
   | "spectrum"
   | "map"
   | "media"
+  | "generated-image"
   | "chart"
   | "diagram"
   | "widget";
@@ -34,7 +35,7 @@ export type VisualKind =
 export interface VisualKindDefinition {
   id: VisualKind;
   label: string;
-  /** subjects this kind serves well — drives the domain-aware visual budget (§3a) */
+  /** subjects this kind often serves well — prompt-time hints, never a whitelist */
   affinity: Domain[];
   /** inline = emitted in the lesson stream; job = filled async after the stream */
   production: "inline" | "job";
@@ -82,7 +83,7 @@ export const visualCatalog: Record<string, VisualKindDefinition> = {
   figure: {
     id: "figure",
     label: "Figure",
-    affinity: ["biography", "arts", "music", "science", "history", "geography", "general"],
+    affinity: ["biography", "arts", "music", "science", "math", "programming", "history", "geography", "general"],
     production: "inline",
     requiresAltText: true,
   },
@@ -107,9 +108,16 @@ export const visualCatalog: Record<string, VisualKindDefinition> = {
     production: "job",
     requiresAltText: true,
   },
+  "generated-image": {
+    id: "generated-image",
+    label: "Generated illustration",
+    affinity: ["science", "math", "programming", "history", "biography", "arts", "music", "language", "law", "business", "geography", "general"],
+    production: "job",
+    requiresAltText: true,
+  },
 };
 
-/** Visual kinds whose affinity includes a domain — drives the Planner budget (§3a). */
+/** Visual kinds whose affinity includes a domain — prompt hints, not routing. */
 export function kindsForDomain(domain: Domain): VisualKindDefinition[] {
   return Object.values(visualCatalog).filter((d) => d.affinity.includes(domain));
 }
@@ -143,8 +151,8 @@ export function inferDomain(text: string): Domain {
   if (has(" law", "legal", "constitution", " court", "statute", "justice", " rights")) return "law";
   if (has("geograph", " map", "region", "climate", "terrain", "country", "continent", "border")) return "geography";
   if (has("business", "market", "econom", "finance", "manage", "strategy", "startup", "pricing")) return "business";
-  if (has("program", " code", "software", "algorithm", " function", " api", "data structure", "compiler")) return "programming";
+  if (has("program", " code", "software", "algorithm", " function", " api", "data structure", "compiler", "transformer", "llm", "inference", "routing")) return "programming";
   if (has(" math", "theorem", "equation", "calculus", "algebra", " proof", "geometry", "probability", "matrix")) return "math";
-  if (has("biolog", "physic", "chemist", "science", " cell", "molecul", "neuron", " gene", "quantum", "gradient", "entrop")) return "science";
+  if (has("biolog", "physic", "chemist", "science", " cell", "molecul", "neuron", "neural", " gene", "quantum", "gradient", "entrop", "machine learning", "expert", "moe", "latent")) return "science";
   return "general";
 }

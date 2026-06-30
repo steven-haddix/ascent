@@ -1,6 +1,6 @@
 // Usage capture — the single chokepoint that records what every AI call cost.
 // Implemented as AI SDK language-model middleware so it wraps the model returned
-// by getModel(): every generate/stream round-trip (including each step of a
+// by getModelFor(): every generate/stream round-trip (including each step of a
 // multi-step tool call) flows through here, present and future, with no change
 // to the call sites. Token usage is read off the result/finish part, priced via
 // the active route, and appended to the usage ledger.
@@ -57,9 +57,7 @@ function record(
     .catch((e) => dlog("usage", "record failed:", String(e)));
 }
 
-/** Middleware bound to the route + model that constructed it (in getModel /
- *  getModelFor). `task` is the AI task id (tasks.ts) when the call came through
- *  getModelFor — attributes the spend to a use case. */
+/** Middleware bound to the route + model that constructed it in getModelFor(). */
 export function recordingMiddleware(routeId: string, modelId: string, task?: string): LanguageModelMiddleware {
   const taskId = task ?? null;
   return {
