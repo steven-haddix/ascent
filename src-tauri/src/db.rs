@@ -195,6 +195,55 @@ mod tests {
     }
 
     #[test]
+    fn fts5_external_content_with_triggers() {
+        // Proves the knowledge-library seam (K0 spike): the bundled SQLite ships FTS5,
+        // an external-content FTS table over a chunks table stays in sync via triggers
+        // (atomic per statement — no cross-`db_execute` BEGIN/COMMIT needed), and bm25()
+        // ranking works through the same single-statement `run_sql` contract.
+        let conn = open_in_memory().unwrap();
+        for sql in [
+            "CREATE TABLE document_chunks (rowid INTEGER PRIMARY KEY, document_id INTEGER, seq INTEGER, text TEXT)",
+            "CREATE VIRTUAL TABLE chunk_fts USING fts5(text, content='document_chunks', content_rowid='rowid')",
+            "CREATE TRIGGER chunks_ai AFTER INSERT ON document_chunks BEGIN \
+               INSERT INTO chunk_fts(rowid, text) VALUES (new.rowid, new.text); END",
+            "CREATE TRIGGER chunks_ad AFTER DELETE ON document_chunks BEGIN \
+               INSERT INTO chunk_fts(chunk_fts, rowid, text) VALUES ('delete', old.rowid, old.text); END",
+        ] {
+            run_sql(&conn, sql, &[], Method::Run).unwrap();
+        }
+        run_sql(
+            &conn,
+            "INSERT INTO document_chunks (rowid, document_id, seq, text) VALUES \
+             (1, 1, 0, 'gradient descent walks downhill on the loss surface'), \
+             (2, 1, 1, 'attention weighs every token against every other token')",
+            &[],
+            Method::Run,
+        )
+        .unwrap();
+
+        let hits = run_sql(
+            &conn,
+            "SELECT rowid, bm25(chunk_fts) FROM chunk_fts WHERE chunk_fts MATCH ? ORDER BY bm25(chunk_fts) LIMIT 5",
+            &[json!("gradient")],
+            Method::All,
+        )
+        .unwrap();
+        assert_eq!(hits.rows.len(), 1, "FTS5 must be available and find the chunk");
+        assert_eq!(hits.rows[0][0], json!(1));
+
+        // Delete propagates through the trigger — no orphaned FTS row.
+        run_sql(&conn, "DELETE FROM document_chunks WHERE rowid = 1", &[], Method::Run).unwrap();
+        let gone = run_sql(
+            &conn,
+            "SELECT rowid FROM chunk_fts WHERE chunk_fts MATCH ?",
+            &[json!("gradient")],
+            Method::All,
+        )
+        .unwrap();
+        assert_eq!(gone.rows.len(), 0, "trigger must remove the FTS row on delete");
+    }
+
+    #[test]
     fn vec_knn_query() {
         // Proves the future SemanticIndex seam: a vec0 virtual table + KNN search.
         let conn = open_in_memory().unwrap();

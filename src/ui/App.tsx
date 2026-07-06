@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { runMigrations } from "../core/store/migrate";
+import { sweepLibrary } from "../core/knowledge/ingest";
+import { sweepDraftTopics } from "../core/generation/outline";
 import { secretStore } from "../core/secrets";
 import { getRoute } from "../core/ai/routes";
 import { getRouteId } from "../core/settings";
-import { useTopics, useConcepts, useStartTopic, useForkConcept, useDeleteConcept, useDeleteTopic, queryClient } from "../core/store/hooks";
+import { useTopics, useConcepts, useForkConcept, useDeleteConcept, useDeleteTopic, queryClient } from "../core/store/hooks";
 import { linkRepo } from "../core/store/repositories";
 import { findExistingConcept } from "../core/store/match";
-import type { TopicBrief } from "../core/types";
 import { childIds, descendantIds } from "./concept-tree-model";
 import { FirstRun } from "./FirstRun";
 import { AppShell } from "./AppShell";
@@ -29,6 +30,10 @@ export function App() {
   useEffect(() => {
     (async () => {
       await runMigrations();
+      // Resume any library ingestion a crash/quit left mid-phase, and clear
+      // abandoned draft topics from dead compose sessions (both fire-and-forget).
+      void sweepLibrary();
+      void sweepDraftTopics();
       const hasKey = await secretStore.hasApiKey(getRoute(getRouteId()).secretName);
       setPhase(hasKey ? "ready" : "first-run");
     })().catch((err) => {
@@ -39,7 +44,6 @@ export function App() {
 
   const topics = useTopics(phase === "ready");
   const concepts = useConcepts(activeTopicId);
-  const startTopic = useStartTopic();
   const fork = useForkConcept();
   const deleteConcept = useDeleteConcept();
   const deleteTopic = useDeleteTopic();
@@ -64,16 +68,12 @@ export function App() {
     setSelectedConceptId(topic?.rootConceptId ?? null);
   };
 
-  const handleStartTopic = (title: string, brief?: TopicBrief) => {
-    startTopic.mutate(
-      { title, brief },
-      {
-        onSuccess: ({ topicId, rootConceptId }) => {
-          setActiveTopicId(topicId);
-          setSelectedConceptId(rootConceptId);
-        },
-      },
-    );
+  // The intake flow (TopicIntake + intakeSession store) creates the topic itself
+  // and hands back the ids to open once the tree is ready.
+  const handleOpenTopic = (topicId: string, rootConceptId: string) => {
+    queryClient.invalidateQueries({ queryKey: ["topics"] });
+    setActiveTopicId(topicId);
+    setSelectedConceptId(rootConceptId);
   };
 
   const handleFork = (title: string, summary?: string, opts?: { remedial?: boolean }) => {
@@ -154,9 +154,7 @@ export function App() {
       onSelectConcept={setSelectedConceptId}
       onDeleteConcept={handleDeleteConcept}
       onDeleteTopic={handleDeleteTopic}
-      onStartTopic={handleStartTopic}
-      starting={startTopic.isPending}
-      startError={startTopic.error ? ((startTopic.error as Error).message ?? String(startTopic.error)) : null}
+      onOpenTopic={handleOpenTopic}
       onNewTopic={() => {
         setActiveTopicId(null);
         setSelectedConceptId(null);

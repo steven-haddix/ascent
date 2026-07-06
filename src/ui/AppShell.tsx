@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import type { ConceptRow, TopicRow } from "../core/store/repositories";
-import type { TopicBrief } from "../core/types";
 import { ConceptTree } from "./ConceptTree";
 import { TopicIntake } from "./TopicIntake";
+import { IntakeBriefPanel } from "./IntakeBriefPanel";
 import { LessonPane } from "./LessonPane";
 import { ChatDrawer } from "./ChatDrawer";
 import { PreviewPane } from "./PreviewPane";
@@ -281,9 +281,8 @@ interface AppShellProps {
   onSelectConcept: (id: string) => void;
   onDeleteConcept: (nodeId: string, keepChildren: boolean) => void;
   onDeleteTopic: (topicId: string) => void;
-  onStartTopic: (title: string, brief?: TopicBrief) => void;
-  starting: boolean;
-  startError?: string | null;
+  /** open a topic created by the intake flow (also used for its post-creation open) */
+  onOpenTopic: (topicId: string, rootConceptId: string) => void;
   onNewTopic: () => void;
   onFork: (title: string, summary?: string, opts?: { remedial?: boolean }) => void;
   referrer?: string | null;
@@ -299,9 +298,7 @@ export function AppShell(props: AppShellProps) {
     onSelectConcept,
     onDeleteConcept,
     onDeleteTopic,
-    onStartTopic,
-    starting,
-    startError,
+    onOpenTopic,
     onNewTopic,
     onFork,
     referrer,
@@ -439,12 +436,7 @@ export function AppShell(props: AppShellProps) {
         />
         <main className="relative min-h-0 min-w-0 bg-bg">
           {!activeTopicId ? (
-            <TopicIntake
-              onGenerate={onStartTopic}
-              onCancel={onNewTopic}
-              busy={starting}
-              error={startError}
-            />
+            <TopicIntake onOpenTopic={onOpenTopic} onCancel={onNewTopic} />
           ) : selected ? (
             <>
               <div className="h-full overflow-y-auto">
@@ -482,7 +474,9 @@ export function AppShell(props: AppShellProps) {
             title="Drag to resize"
             className="absolute left-0 top-0 z-10 h-full w-1.5 -translate-x-1/2 cursor-col-resize hover:bg-rule-strong"
           />
-          {selected ? (
+          {!activeTopicId ? (
+            <IntakeBriefPanel />
+          ) : selected ? (
             <PreviewPane
               key={selected.id}
               concept={selected}

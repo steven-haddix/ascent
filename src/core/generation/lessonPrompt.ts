@@ -31,6 +31,10 @@ export interface LessonPromptParts {
   /** Web search (web-search spec §5): a bounded, guarded "live web findings" block inserted after
    *  continuity so the lesson can draw on current information. Empty by default → output unchanged. */
   grounding?: string;
+  /** Knowledge library (knowledge-backbone K2): the bounded, guarded "expert sources" block —
+   *  passages retrieved from the topic's saved/uploaded documents, inserted after grounding.
+   *  Empty by default → output unchanged. */
+  knowledge?: string;
   /** LLM-authored visual teaching brief: learning moments to preserve, with tool suggestions
    *  that are intentionally not a whitelist. */
   visualBrief?: VisualBrief | null;
@@ -76,7 +80,7 @@ understanding, not coverage. Do NOT write like an encyclopedia.
 
 Topic: "${ctx.topicTitle}"
 Path: ${ctx.path.join(" > ")}
-Concept to teach: "${concept.title}"${focus}${siblings}${children}${brief}${existing}${parts.continuity ? `\n${parts.continuity}\n` : ""}${parts.grounding ? `\n${parts.grounding}\n` : ""}
+Concept to teach: "${concept.title}"${focus}${siblings}${children}${brief}${existing}${parts.continuity ? `\n${parts.continuity}\n` : ""}${parts.grounding ? `\n${parts.grounding}\n` : ""}${parts.knowledge ? `\n${parts.knowledge}\n` : ""}
 
 HOW TO EXPLAIN (this matters more than how much you cover):
 - Start from intuition. Before any formalism, give the learner a way to picture or feel

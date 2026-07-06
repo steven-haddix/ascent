@@ -2,8 +2,9 @@
 
 /** Right-pane capability modules a lesson can declare. Core lenses are always
  *  available; `code`/`viz` are opt-in per lesson. `resources` is data-driven — the
- *  preview pane appends it when web-search resources exist (not declared by the generator). */
-export type LensId = "notes" | "quiz" | "chat" | "teach" | "code" | "viz" | "resources";
+ *  preview pane appends it when web-search resources exist (not declared by the
+ *  generator). `library` is the topic's knowledge library, always offered. */
+export type LensId = "notes" | "quiz" | "chat" | "teach" | "code" | "viz" | "resources" | "library";
 
 export type ConceptStatus = "queued" | "current" | "visited" | "complete";
 /** Generation lifecycle for a concept's lesson body. */
@@ -209,6 +210,12 @@ export interface IntakeQuestion {
   prompt: string;
   /** 3-5 distinct choices */
   options: string[];
+  /** short 1-3 word label for the Brief panel facet this answer fills (e.g.
+   *  "Motivation", "Math depth", "Scope") */
+  facetLabel?: string;
+  /** when the question is grounded in a specific attached document, its title —
+   *  rendered as a provenance chip ("from rl-course-syllabus.md") */
+  source?: string;
 }
 
 /** One answered intake question — kept as grounding for generation. At least one
@@ -219,6 +226,8 @@ export interface IntakeAnswer {
   selected?: string;
   /** free-text the learner added, if any (supplements or replaces a selection) */
   other?: string;
+  /** carried over from the question — lets the brief build labeled facets */
+  facetLabel?: string;
 }
 
 /** The persisted intake result — threaded into all generation for a topic. */
@@ -227,6 +236,11 @@ export interface TopicBrief {
   summary: string;
   /** the Q&A transcript */
   answers: IntakeAnswer[];
+  /** labeled answer facets for the Brief panel (topic-creation design): e.g.
+   *  {label: "Motivation", value: "A course I'm taking right now"} */
+  facets?: { label: string; value: string }[];
+  /** library documentIds the topic was grounded in at creation time */
+  groundedIn?: number[];
 }
 
 // --- Continuity Engine (Course Canon + Lesson Digest) ---
@@ -281,4 +295,24 @@ export interface CanonVoice {
 export interface LessonSnapshot {
   subtitle: string | null;
   blocks: Block[];
+}
+
+// --- Knowledge library (knowledge-backbone plan §4) ---
+
+/** Descriptive metadata for a library document (all optional, provider-dependent). */
+export interface DocumentMeta {
+  publishedAt?: string;
+  domain?: string;
+  license?: string;
+  pageCount?: number;
+}
+
+/** The distilled learner profile — who the user is, independent of any topic.
+ *  Produced by the `profile` task from uploaded background docs (resume, bio). */
+export interface LearnerProfileSummary {
+  background: string;
+  roles: string[];
+  skills: string[];
+  goals: string[];
+  priorKnowledge: string[];
 }

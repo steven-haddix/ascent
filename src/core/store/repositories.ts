@@ -3,7 +3,7 @@
 // later swap in a reactive layer (TanStack DB) or a sync engine without UI churn.
 import { and, asc, eq, inArray, or, sql } from "drizzle-orm";
 import { db } from "./client";
-import { topics, concepts, conceptLinks, lessons, lessonDrafts, notes, chatTurns, teachAttempts, highlights, usageEvents, widgets, courseCanon, mediaAssets, resources } from "./schema";
+import { topics, concepts, conceptLinks, lessons, lessonDrafts, notes, chatTurns, teachAttempts, highlights, usageEvents, widgets, courseCanon, mediaAssets, resources, documents, sources, documentChunks, lessonSourceRefs, learnerProfile } from "./schema";
 
 export type TopicInsert = typeof topics.$inferInsert;
 export type TopicRow = typeof topics.$inferSelect;
@@ -63,8 +63,14 @@ export interface UsageDay {
 
 export const topicRepo = {
   list: () => db.select().from(topics).orderBy(asc(topics.createdAt)).all(),
+  /** Sidebar topics — drafts (mid-creation) are hidden. */
+  listReady: () =>
+    db.select().from(topics).where(eq(topics.status, "ready")).orderBy(asc(topics.createdAt)).all(),
+  listDrafts: () => db.select().from(topics).where(eq(topics.status, "draft")).all(),
   get: (id: string) => db.select().from(topics).where(eq(topics.id, id)).get(),
   create: (value: TopicInsert) => db.insert(topics).values(value).run(),
+  update: (id: string, patch: Partial<TopicInsert>) =>
+    db.update(topics).set(patch).where(eq(topics.id, id)).run(),
   /** Hard-delete a whole topic and everything under it. Every concept in the tree
    *  goes through conceptRepo.removeMany (which also drops each concept's lesson,
    *  notes, chat, teach-backs, highlights, widgets, media, and any concept_links it
@@ -114,6 +120,7 @@ export const conceptRepo = {
     await db.delete(widgets).where(inArray(widgets.conceptId, ids)).run();
     await db.delete(mediaAssets).where(inArray(mediaAssets.conceptId, ids)).run();
     await db.delete(resources).where(inArray(resources.conceptId, ids)).run();
+    await db.delete(lessonSourceRefs).where(inArray(lessonSourceRefs.conceptId, ids)).run();
     await db.delete(lessonDrafts).where(inArray(lessonDrafts.conceptId, ids)).run();
     await db.delete(lessons).where(inArray(lessons.conceptId, ids)).run();
     await db.delete(concepts).where(inArray(concepts.id, ids)).run();
@@ -329,4 +336,169 @@ export const usageRepo = {
   },
 
   clear: () => db.delete(usageEvents).run(),
+};
+
+// --- Knowledge library (knowledge-backbone plan §4/§5) ---
+
+export type DocumentInsert = typeof documents.$inferInsert;
+export type DocumentRow = typeof documents.$inferSelect;
+export type SourceInsert = typeof sources.$inferInsert;
+export type SourceRow = typeof sources.$inferSelect;
+export type DocumentChunkInsert = typeof documentChunks.$inferInsert;
+export type DocumentChunkRow = typeof documentChunks.$inferSelect;
+export type LessonSourceRefInsert = typeof lessonSourceRefs.$inferInsert;
+export type LessonSourceRefRow = typeof lessonSourceRefs.$inferSelect;
+export type LearnerProfileRow = typeof learnerProfile.$inferSelect;
+
+/** A source binding joined with its document — what the Library UI renders. */
+export interface LibraryEntry {
+  source: SourceRow;
+  document: DocumentRow;
+}
+
+/** Content-addressed physical documents. `create` resolves by the unique
+ *  contentHash after insert (no RETURNING dependency on the proxy driver). */
+export const documentRepo = {
+  get: (id: number) => db.select().from(documents).where(eq(documents.id, id)).get(),
+  getByHash: (contentHash: string) =>
+    db.select().from(documents).where(eq(documents.contentHash, contentHash)).get(),
+  create: async (value: DocumentInsert): Promise<DocumentRow> => {
+    await db.insert(documents).values(value).run();
+    const row = await documentRepo.getByHash(value.contentHash);
+    if (!row) throw new Error("document insert did not persist");
+    return row;
+  },
+  update: (id: number, patch: Partial<DocumentInsert>) =>
+    db.update(documents).set(patch).where(eq(documents.id, id)).run(),
+  /** Non-terminal rows for the startup sweep (stuck mid-phase after a crash). */
+  nonTerminal: () =>
+    db
+      .select()
+      .from(documents)
+      .where(sql`${documents.status} NOT IN ('ready', 'failed')`)
+      .all(),
+  delete: (id: number) => db.delete(documents).where(eq(documents.id, id)).run(),
+};
+
+/** Bindings of documents into topic/profile scopes. The profile-scope duplicate
+ *  guard lives in findBinding (SQLite unique indexes treat NULLs as distinct). */
+export const sourceRepo = {
+  get: (id: string) => db.select().from(sources).where(eq(sources.id, id)).get(),
+  findBinding: (documentId: number, scope: "topic" | "profile", topicId: string | null) =>
+    db
+      .select()
+      .from(sources)
+      .where(
+        and(
+          eq(sources.documentId, documentId),
+          eq(sources.scope, scope),
+          topicId === null ? sql`${sources.topicId} IS NULL` : eq(sources.topicId, topicId),
+        ),
+      )
+      .get(),
+  create: (value: SourceInsert) => db.insert(sources).values(value).run(),
+  listByTopic: async (topicId: string): Promise<LibraryEntry[]> => {
+    const rows = await db
+      .select({ source: sources, document: documents })
+      .from(sources)
+      .innerJoin(documents, eq(sources.documentId, documents.id))
+      .where(and(eq(sources.scope, "topic"), eq(sources.topicId, topicId)))
+      .orderBy(asc(sources.createdAt))
+      .all();
+    return rows;
+  },
+  listProfile: async (): Promise<LibraryEntry[]> => {
+    const rows = await db
+      .select({ source: sources, document: documents })
+      .from(sources)
+      .innerJoin(documents, eq(sources.documentId, documents.id))
+      .where(eq(sources.scope, "profile"))
+      .orderBy(asc(sources.createdAt))
+      .all();
+    return rows;
+  },
+  setPinned: (id: string, pinned: boolean) =>
+    db.update(sources).set({ pinned }).where(eq(sources.id, id)).run(),
+  setRole: (id: string, role: "syllabus" | "ground-truth" | "reference") =>
+    db.update(sources).set({ role }).where(eq(sources.id, id)).run(),
+  delete: (id: string) => db.delete(sources).where(eq(sources.id, id)).run(),
+  countForDocument: async (documentId: number): Promise<number> => {
+    const row = await db
+      .select({ n: sql<number>`count(*)` })
+      .from(sources)
+      .where(eq(sources.documentId, documentId))
+      .get();
+    return row?.n ?? 0;
+  },
+  /** documentIds retrievable for a topic: its topic bindings + all profile bindings. */
+  documentIdsInScope: async (
+    topicId: string,
+  ): Promise<{ id: number; pinned: boolean; origin: string; role: string }[]> => {
+    const rows = await db
+      .select({ id: sources.documentId, pinned: sources.pinned, origin: sources.origin, role: sources.role })
+      .from(sources)
+      .where(or(and(eq(sources.scope, "topic"), eq(sources.topicId, topicId)), eq(sources.scope, "profile")))
+      .all();
+    // A document bound more than once keeps its strongest signals (pinned wins,
+    // upload wins, ground-truth wins over reference).
+    const byId = new Map<number, { id: number; pinned: boolean; origin: string; role: string }>();
+    for (const r of rows) {
+      const prev = byId.get(r.id);
+      if (!prev) byId.set(r.id, r);
+      else
+        byId.set(r.id, {
+          id: r.id,
+          pinned: prev.pinned || r.pinned,
+          origin: prev.origin === "upload" ? prev.origin : r.origin,
+          role: prev.role === "ground-truth" || r.role === "ground-truth" ? "ground-truth" : prev.role,
+        });
+    }
+    return [...byId.values()];
+  },
+};
+
+/** Extraction chunks. REPLACE-per-document: the FTS triggers (migration 0014)
+ *  keep chunk_fts in sync on every delete/insert, so no manual FTS writes here. */
+export const chunkRepo = {
+  listByDocument: (documentId: number) =>
+    db
+      .select()
+      .from(documentChunks)
+      .where(eq(documentChunks.documentId, documentId))
+      .orderBy(asc(documentChunks.seq))
+      .all(),
+  getByIds: (ids: number[]) =>
+    ids.length ? db.select().from(documentChunks).where(inArray(documentChunks.id, ids)).all() : Promise.resolve([]),
+  replaceForDocument: async (documentId: number, rows: Omit<DocumentChunkInsert, "id">[]): Promise<void> => {
+    await db.delete(documentChunks).where(eq(documentChunks.documentId, documentId)).run();
+    // Chunked inserts: a long PDF can exceed the statement's bind-parameter budget in one VALUES.
+    for (let i = 0; i < rows.length; i += 50) {
+      await db.insert(documentChunks).values(rows.slice(i, i + 50)).run();
+    }
+  },
+  deleteForDocument: (documentId: number) =>
+    db.delete(documentChunks).where(eq(documentChunks.documentId, documentId)).run(),
+};
+
+/** Post-generation snapshot of what a lesson actually retrieved (plan §4). */
+export const sourceRefRepo = {
+  listByConcept: (conceptId: string) =>
+    db.select().from(lessonSourceRefs).where(eq(lessonSourceRefs.conceptId, conceptId)).all(),
+  listByDocument: (documentId: number) =>
+    db.select().from(lessonSourceRefs).where(eq(lessonSourceRefs.documentId, documentId)).all(),
+  replaceForConcept: async (conceptId: string, rows: LessonSourceRefInsert[]): Promise<void> => {
+    await db.delete(lessonSourceRefs).where(eq(lessonSourceRefs.conceptId, conceptId)).run();
+    if (rows.length) await db.insert(lessonSourceRefs).values(rows).run();
+  },
+};
+
+/** The single global learner profile row (id "default"). */
+export const profileRepo = {
+  get: () => db.select().from(learnerProfile).where(eq(learnerProfile.id, "default")).get(),
+  upsert: (value: Omit<typeof learnerProfile.$inferInsert, "id">) =>
+    db
+      .insert(learnerProfile)
+      .values({ ...value, id: "default" })
+      .onConflictDoUpdate({ target: learnerProfile.id, set: value })
+      .run(),
 };

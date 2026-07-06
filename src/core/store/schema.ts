@@ -3,13 +3,17 @@ import { sqliteTable, text, integer, real, uniqueIndex, primaryKey } from "drizz
 import { relations, sql } from "drizzle-orm";
 import type { License, Attribution } from "../media/types";
 import type { Domain } from "../visuals/catalog";
-import type { Block, SuggestedFork, SuggestedLesson, LensId, ChatAttachment, RubricScores, TeachAnnotation, TeachGap, TopicBrief, WidgetStatus, LessonDigest, LessonSnapshot, CanonSpine, CanonNotation, CanonMotif, CanonVoice } from "../types";
+import type { Block, SuggestedFork, SuggestedLesson, LensId, ChatAttachment, RubricScores, TeachAnnotation, TeachGap, TopicBrief, WidgetStatus, LessonDigest, LessonSnapshot, CanonSpine, CanonNotation, CanonMotif, CanonVoice, DocumentMeta, LearnerProfileSummary } from "../types";
 
-/** A subject the learner is studying = one tree root. */
+/** A subject the learner is studying = one tree root. `draft` topics exist only
+ *  during the creation flow (compose/interview) so attachments have a real topicId
+ *  to bind to BEFORE the outline generates; the sidebar hides them, and a startup
+ *  sweep deletes stale ones (an abandoned compose is not a topic). */
 export const topics = sqliteTable("topics", {
   id: text("id").primaryKey(),
   title: text("title").notNull(),
   rootConceptId: text("root_concept_id"),
+  status: text("status", { enum: ["draft", "ready"] }).notNull().default("ready"),
   /** the AI intake brief that refined this topic (null for skipped/legacy topics) */
   brief: text("brief", { mode: "json" }).$type<TopicBrief>(),
   createdAt: integer("created_at").notNull(),
@@ -324,6 +328,123 @@ export const resources = sqliteTable(
   },
   (t) => [primaryKey({ columns: [t.conceptId, t.url] })],
 );
+
+/** A content-addressed knowledge document — the PHYSICAL artifact (bytes + extraction
+ *  state) of the source library (knowledge-backbone plan §4). Deduped by contentHash:
+ *  the same paper saved in five topics is ONE document with five `sources` bindings.
+ *  Integer PK on purpose — chunks join FTS5 external-content tables on rowid.
+ *  `status` is phased so a crash/retry resumes at the failed phase (the startup sweep
+ *  re-enqueues non-terminal rows) and `ready` always means fully indexed. */
+export const documents = sqliteTable("documents", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  contentHash: text("content_hash").notNull().unique(),
+  /** canonical http(s) URL for web-found documents; null for uploads */
+  url: text("url"),
+  /** durable blob path under app_data_dir/library/blobs/<contentHash> */
+  localPath: text("local_path"),
+  mime: text("mime"),
+  byteSize: integer("byte_size"),
+  title: text("title").notNull(),
+  kind: text("kind", { enum: ["web", "paper", "video", "blog", "docs", "pdf", "resume", "notes"] })
+    .notNull()
+    .default("web"),
+  status: text("status", {
+    enum: ["queued", "fetching", "extracting", "chunking", "indexing", "ready", "failed"],
+  })
+    .notNull()
+    .default("queued"),
+  error: text("error"),
+  attempts: integer("attempts").notNull().default(0),
+  lastAttemptAt: integer("last_attempt_at"),
+  /** extractor that produced the current chunks (e.g. "local-pdf"); null until extracted */
+  extractorId: text("extractor_id"),
+  /** bumped on re-extract; chunks and lesson_source_refs carry it */
+  extractionVersion: integer("extraction_version").notNull().default(0),
+  meta: text("meta", { mode: "json" }).$type<DocumentMeta>().notNull().default(sql`'{}'`),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+});
+
+/** A binding of a document into a context — what the Library UI lists. `scope`
+ *  "topic" ties it to one topic's library; "profile" is the global learner-docs
+ *  scope (topicId null). Each binding keeps its own discovery provenance. The
+ *  unique index covers the topic scope; the profile-scope NULL case (SQLite treats
+ *  NULLs as distinct) is guarded in the repo's find-or-create. */
+export const sources = sqliteTable(
+  "sources",
+  {
+    id: text("id").primaryKey(),
+    documentId: integer("document_id")
+      .notNull()
+      .references(() => documents.id),
+    scope: text("scope", { enum: ["topic", "profile"] }).notNull(),
+    topicId: text("topic_id").references(() => topics.id),
+    origin: text("origin", { enum: ["search", "upload", "chat"] }).notNull(),
+    /** how this document functions IN THIS CONTEXT (topic-creation design):
+     *  syllabus = shapes the tree's structure; ground-truth = content anchor,
+     *  citation-priority; reference = normal retrieval. Heuristic-guessed at
+     *  add-time (guessRole), user-editable in the Library. */
+    role: text("role", { enum: ["syllabus", "ground-truth", "reference"] })
+      .notNull()
+      .default("reference"),
+    pinned: integer("pinned", { mode: "boolean" }).notNull().default(false),
+    /** which concept's search surfaced it (null for uploads/profile docs) */
+    addedFromConceptId: text("added_from_concept_id"),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [uniqueIndex("sources_doc_scope_topic").on(t.documentId, t.scope, t.topicId)],
+);
+
+/** Extraction output — the retrieval unit. Integer PK: FTS5 external-content
+ *  tables join on rowid (content_rowid='id'); the chunk_fts virtual table and its
+ *  sync triggers live in the migration SQL (drizzle can't model virtual tables). */
+export const documentChunks = sqliteTable("document_chunks", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  documentId: integer("document_id")
+    .notNull()
+    .references(() => documents.id),
+  seq: integer("seq").notNull(),
+  text: text("text").notNull(),
+  /** citation locator: "p.4" for PDFs, a heading path for HTML/markdown */
+  locator: text("locator"),
+  extractionVersion: integer("extraction_version").notNull(),
+  createdAt: integer("created_at").notNull(),
+});
+
+/** What a lesson's generation ACTUALLY retrieved from the library, snapshotted
+ *  post-stream — so "Sources used" means used (not "everything in the library"),
+ *  a re-extraction can't silently rewrite an old lesson's citations, and the
+ *  Library can show backlinks. REPLACE-per-concept on each generation. */
+export const lessonSourceRefs = sqliteTable(
+  "lesson_source_refs",
+  {
+    conceptId: text("concept_id")
+      .notNull()
+      .references(() => concepts.id),
+    documentId: integer("document_id")
+      .notNull()
+      .references(() => documents.id),
+    /** chunk ids injected, best-rank first */
+    chunkIds: text("chunk_ids", { mode: "json" }).$type<number[]>().notNull().default(sql`'[]'`),
+    locators: text("locators", { mode: "json" }).$type<string[]>().notNull().default(sql`'[]'`),
+    /** best retrieval rank this document achieved for the lesson (0 = top) */
+    rank: integer("rank").notNull(),
+    extractionVersion: integer("extraction_version").notNull(),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.conceptId, t.documentId] })],
+);
+
+/** The global learner profile (one row, id "default") distilled from uploaded
+ *  background docs (resume, bio) — who the learner is, independent of any topic. */
+export const learnerProfile = sqliteTable("learner_profile", {
+  id: text("id").primaryKey(),
+  summary: text("summary", { mode: "json" }).$type<LearnerProfileSummary>().notNull(),
+  /** the source bindings this summary was distilled from */
+  sourceIds: text("source_ids", { mode: "json" }).$type<string[]>().notNull().default(sql`'[]'`),
+  version: integer("version").notNull().default(1),
+  updatedAt: integer("updated_at").notNull(),
+});
 
 export const topicsRelations = relations(topics, ({ many }) => ({ concepts: many(concepts) }));
 export const conceptsRelations = relations(concepts, ({ one, many }) => ({

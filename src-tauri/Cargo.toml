@@ -30,4 +30,6 @@ futures-util = "0.3.32"
 tokio = { version = ">=1.40, <1.52", features = ["rt-multi-thread", "macros", "time"] }
 keyring = { version = "^3", features = ["apple-native"] }
 base64 = "0.22.1"
+sha2 = "0.11.0"
+url = "2.5.8"
 

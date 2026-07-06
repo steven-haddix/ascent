@@ -39,7 +39,7 @@ export function PreviewPane({
   // from the lesson's declared lenses. Resources appended when present. Deduped, Notes first, Teach last.
   const fromLesson = (lesson.data?.lenses as LensId[] | undefined) ?? [];
   const declared = Array.from(
-    new Set<LensId>(["notes", ...fromLesson, ...(showResources ? (["resources"] as LensId[]) : []), "teach"]),
+    new Set<LensId>(["notes", ...fromLesson, ...(showResources ? (["resources"] as LensId[]) : []), "library", "teach"]),
   );
   const lenses = getPreviewLenses(declared);
   const ids = lenses.map((l) => l.id).join(",");

@@ -12,6 +12,7 @@ import type { Block, SuggestedFork, SuggestedLesson, LensId } from "../types";
 import { LessonContinuationSchema, LessonSchema } from "./lessonSchema";
 import { buildLessonPrompt, type LessonContext } from "./lessonPrompt";
 import { buildContinuitySection } from "./continuity";
+import { knowledgeForLesson } from "../knowledge/retrieve";
 import { groundingForLesson } from "./resourceJobs";
 import { planVisualBrief } from "./visualPlan";
 import { buildLessonContinuationPrompt, mergeLessonContinuation, type LessonCheckpoint } from "./lessonRecovery";
@@ -135,8 +136,9 @@ export async function generateLesson(
     // what context the interrupted attempt saw.
     const continuity = await buildContinuitySection(concept, ctx);
     const grounding = await groundingForLesson(concept, ctx, signal);
+    const knowledge = await knowledgeForLesson(concept);
     const visualBrief = await planVisualBrief(concept, ctx, signal);
-    originalPrompt = buildLessonPrompt(concept, ctx, { continuity, grounding, visualBrief });
+    originalPrompt = buildLessonPrompt(concept, ctx, { continuity, grounding, knowledge, visualBrief });
   }
   await options.onPrepared?.(originalPrompt);
   dlog("gen", options.recovery ? "continuation created @" : "stream created @", since(t0));

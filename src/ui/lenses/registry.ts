@@ -6,6 +6,7 @@ import { TeachLens } from "./TeachLens";
 import { CodeLens } from "./CodeLens";
 import { VizLens } from "./VizLens";
 import { ResourcesLens } from "./ResourcesLens";
+import { LibraryLens } from "./LibraryLens";
 
 // Registered preview-pane lenses. `chat` is the bottom drawer (not here).
 const LENSES: Partial<Record<LensId, Lens>> = {
@@ -15,6 +16,7 @@ const LENSES: Partial<Record<LensId, Lens>> = {
   code: { id: "code", label: "Code", icon: "<>", Renderer: CodeLens },
   viz: { id: "viz", label: "Viz", icon: "◫", Renderer: VizLens },
   resources: { id: "resources", label: "Sources", icon: "↗", Renderer: ResourcesLens },
+  library: { id: "library", label: "Library", icon: "▤", Renderer: LibraryLens },
 };
 
 export function getLens(id: LensId): Lens | undefined {

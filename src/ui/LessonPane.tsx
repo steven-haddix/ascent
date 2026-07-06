@@ -22,6 +22,7 @@ import { WidgetBlock } from "./blocks/WidgetBlock";
 import { visualRenderers } from "./blocks/registry";
 import { widgetKeysFor } from "../core/widgets/keys";
 import { NextSteps, type RelatedItem } from "./NextSteps";
+import { SourcesUsed } from "./SourcesUsed";
 import { useLessonFind } from "./find/useLessonFind";
 import { FindBar } from "./find/FindBar";
 
@@ -656,6 +657,7 @@ export function LessonPane({
             )}
             {!generating && !recovering && (
               <div data-find-ignore>
+                <SourcesUsed conceptId={concept.id} />
                 <NextSteps related={related} forks={forks} onFork={onFork} onNavigate={onNavigate} />
               </div>
             )}

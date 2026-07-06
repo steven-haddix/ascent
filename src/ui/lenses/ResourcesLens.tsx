@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { resourcesRepo, type ResourceRow } from "../../core/store/repositories";
+import { resourcesRepo, sourceRepo, type ResourceRow } from "../../core/store/repositories";
+import { saveUrlToLibrary } from "../../core/knowledge/ingest";
 import { refreshResources } from "../../core/generation/resourceJobs";
 import { isLessonStreaming } from "../../core/generation/lessonStreams";
 import { hasSearchCapability } from "../../core/search/registry";
@@ -27,6 +28,39 @@ export function ResourcesLens({ concept, ctx }: LensProps) {
     queryFn: async () => (await resourcesRepo.listByConcept(concept.id)) as ResourceRow[],
   });
   const [refreshing, setRefreshing] = useState(false);
+
+  // Library membership for the "Save" affordance: a resource counts as saved when a
+  // library document carries its URL. (A redirect can change the stored URL — the
+  // per-session `justSaved` set keeps the button honest for those.)
+  const library = useQuery({
+    queryKey: ["library", concept.topicId],
+    queryFn: () => sourceRepo.listByTopic(concept.topicId),
+  });
+  const savedUrls = new Set((library.data ?? []).map((e) => e.document.url).filter(Boolean));
+  const [justSaved, setJustSaved] = useState<Set<string>>(new Set());
+  const [saving, setSaving] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  const onSave = async (r: ResourceRow) => {
+    if (saving) return;
+    setSaving(r.url);
+    setSaveError(null);
+    try {
+      await saveUrlToLibrary(r.url, {
+        scope: "topic",
+        topicId: concept.topicId,
+        origin: "search",
+        title: r.title,
+        kind: r.kind,
+        addedFromConceptId: concept.id,
+      });
+      setJustSaved((prev) => new Set(prev).add(r.url));
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSaving(null);
+    }
+  };
 
   const rows = (q.data ?? []).filter((r) => r.status === "ready");
   const searching = refreshing || (isLessonStreaming(concept.id) && hasSearchCapability());
@@ -79,6 +113,7 @@ export function ResourcesLens({ concept, ctx }: LensProps) {
           {searching ? "Refreshing…" : "Refresh latest"}
         </button>
       </div>
+      {saveError ? <p className="text-[11.5px] text-danger">Save failed: {saveError}</p> : null}
       {GROUPS.map(({ kind, label }) => {
         const items = rows.filter((r) => r.kind === kind);
         if (!items.length) return null;
@@ -86,20 +121,34 @@ export function ResourcesLens({ concept, ctx }: LensProps) {
           <section key={kind}>
             <div className="mb-1 text-[10.5px] font-medium uppercase tracking-wider text-ink-4">{label}</div>
             <div className="flex flex-col gap-1.5">
-              {items.map((r) => (
-                <button
-                  key={r.url}
-                  onClick={() => void openUrl(r.url)}
-                  className="group rounded-md border border-rule bg-surface px-3 py-2 text-left transition-colors hover:border-accent"
-                >
-                  <span className="block text-[13px] font-medium text-ink group-hover:text-accent">{r.title}</span>
-                  <span className="mt-0.5 block text-[11px] text-ink-4">
-                    {r.source ?? ""}
-                    {r.publishedAt ? ` · ${r.publishedAt}` : ""}
-                  </span>
-                  {r.snippet ? <span className="mt-1 block text-[12px] leading-snug text-ink-3">{r.snippet}</span> : null}
-                </button>
-              ))}
+              {items.map((r) => {
+                const saved = savedUrls.has(r.url) || justSaved.has(r.url);
+                return (
+                  <div
+                    key={r.url}
+                    className="group relative rounded-md border border-rule bg-surface px-3 py-2 text-left transition-colors hover:border-accent"
+                  >
+                    <button onClick={() => void openUrl(r.url)} className="block w-full text-left">
+                      <span className="block pr-14 text-[13px] font-medium text-ink group-hover:text-accent">{r.title}</span>
+                      <span className="mt-0.5 block text-[11px] text-ink-4">
+                        {r.source ?? ""}
+                        {r.publishedAt ? ` · ${r.publishedAt}` : ""}
+                      </span>
+                      {r.snippet ? <span className="mt-1 block text-[12px] leading-snug text-ink-3">{r.snippet}</span> : null}
+                    </button>
+                    <button
+                      title={saved ? "In this topic's library" : "Save to library — lessons will build on it"}
+                      disabled={saved || saving === r.url}
+                      onClick={() => void onSave(r)}
+                      className={`absolute right-2 top-2 rounded px-1.5 py-0.5 text-[11px] ${
+                        saved ? "text-ink-4" : "text-accent hover:bg-rule"
+                      } disabled:cursor-default`}
+                    >
+                      {saved ? "✓ Saved" : saving === r.url ? "Saving…" : "+ Save"}
+                    </button>
+                  </div>
+                );
+              })}
             </div>
           </section>
         );

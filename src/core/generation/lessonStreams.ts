@@ -15,7 +15,8 @@ import { scanForGeneratedImageJobs } from "./generatedImageJobs";
 import { persistResources } from "./resourceJobs";
 import { runVisualAuditPass } from "./director";
 import { indexDigest } from "./semanticIndex";
-import { lessonDraftRepo, lessonRepo, type ConceptRow, type LessonDraftRow } from "../store/repositories";
+import { refsFromPassages, takePendingSourceRefs } from "../knowledge/retrieve";
+import { lessonDraftRepo, lessonRepo, sourceRefRepo, type ConceptRow, type LessonDraftRow } from "../store/repositories";
 import { queryClient } from "../store/queryClient";
 import { dlog } from "../debug";
 import { getTaskModelId } from "../settings";
@@ -69,6 +70,20 @@ registerFinalizationStep({
   name: "resources",
   order: 35,
   run: ({ concept }) => persistResources(concept.id),
+});
+
+// Knowledge library (K2): snapshot what retrieval actually injected into this lesson
+// (lesson_source_refs — the "Sources used" footer reads it). No-op when the prompt
+// carried no library passages (empty library, or a recovery that reused a prompt).
+registerFinalizationStep({
+  name: "source-refs",
+  order: 36,
+  run: async ({ concept }) => {
+    const passages = takePendingSourceRefs(concept.id);
+    if (!passages) return;
+    await sourceRefRepo.replaceForConcept(concept.id, refsFromPassages(concept.id, passages));
+    void queryClient.invalidateQueries({ queryKey: ["sourceRefs", concept.id] });
+  },
 });
 
 export interface LessonStreamState {

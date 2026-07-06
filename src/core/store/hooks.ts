@@ -21,7 +21,7 @@ import {
   type UsageDay,
 } from "./repositories";
 import { findExistingConcept, normalizeTitle } from "./match";
-import { startTopic } from "../generation/outline";
+import { removeTopicSources } from "../knowledge/ingest";
 import { placeForkedConcept } from "../generation/canon";
 import { markStaleForDependents } from "../generation/coherence";
 import type { LessonContext } from "../generation/lesson";
@@ -35,7 +35,7 @@ import {
 import { chat, type ChatContext } from "../generation/tutor";
 import { generateQuiz, type QuizQuestion } from "../generation/quiz";
 import { gradeTeachBack, scoreFromRubric, type TeachContext } from "../generation/teachback";
-import type { TeachAudience, TopicBrief, TeachGap, ExistingConcept } from "../types";
+import type { TeachAudience, TeachGap, ExistingConcept } from "../types";
 import { getTutorMode } from "../settings";
 import { queryClient } from "./queryClient";
 
@@ -45,7 +45,7 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
 export { queryClient };
 
 export const useTopics = (enabled = true) =>
-  useQuery({ queryKey: ["topics"], queryFn: () => topicRepo.list(), enabled });
+  useQuery({ queryKey: ["topics"], queryFn: () => topicRepo.listReady(), enabled });
 
 export const useConcepts = (topicId: string | null) =>
   useQuery({
@@ -72,17 +72,6 @@ export const useConceptLinks = (topicId: string | null) =>
     queryFn: () => linkRepo.byTopic(topicId as string),
     enabled: !!topicId,
   });
-
-export function useStartTopic() {
-  return useMutation({
-    mutationFn: ({ title, brief }: { title: string; brief?: TopicBrief | null }) =>
-      startTopic(title, brief),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["topics"] });
-      queryClient.invalidateQueries({ queryKey: ["concepts"] });
-    },
-  });
-}
 
 /** Fork a new concept under a parent; resolves to the new concept id. */
 export function useForkConcept() {
@@ -175,6 +164,7 @@ export function useDeleteTopic() {
     mutationFn: async (topicId: string) => {
       const conceptIds = (await conceptRepo.byTopic(topicId)).map((c) => c.id);
       for (const id of conceptIds) cancelLessonStream(id);
+      await removeTopicSources(topicId); // blob-aware: bindings, orphaned docs, chunks
       await topicRepo.remove(topicId);
       for (const id of conceptIds) {
         queryClient.removeQueries({ queryKey: ["lesson", id] });

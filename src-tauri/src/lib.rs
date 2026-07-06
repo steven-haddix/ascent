@@ -1,6 +1,8 @@
 mod ai;
 mod db;
+mod devlog;
 mod http;
+mod library;
 mod media;
 mod secrets;
 mod transport;
@@ -51,7 +53,12 @@ pub fn run() {
             ai::ai_stream,
             media::provider_request,
             media::provider_download,
-            media::cache_generated_asset
+            media::cache_generated_asset,
+            library::library_fetch,
+            library::library_store_bytes,
+            library::library_read_blob,
+            library::library_delete_blob,
+            devlog::frontend_log
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -36,6 +36,11 @@ describe("buildLessonPrompt", () => {
     expect(out).toContain(marker);
   });
 
+  it("injects a non-empty knowledge section after grounding", () => {
+    const out = buildLessonPrompt(concept, ctx, { grounding: "GROUNDING_MARKER", knowledge: "KNOWLEDGE_MARKER" });
+    expect(out.indexOf("KNOWLEDGE_MARKER")).toBeGreaterThan(out.indexOf("GROUNDING_MARKER"));
+  });
+
   it("injects a visual brief as a learning contract, not a visual-tool whitelist", () => {
     const visualBrief: VisualBrief = {
       visualStance: "Make the learner trace the mechanism before seeing the formula.",

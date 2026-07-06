@@ -6,6 +6,7 @@
 import { streamText, tool, stepCountIs } from "ai";
 import { z } from "zod";
 import { getModelFor } from "../ai/service";
+import { knowledgeForChat } from "../knowledge/retrieve";
 import { lessonRepo, widgetRepo, type ConceptRow } from "../store/repositories";
 import { queryClient } from "../store/queryClient";
 import { isLessonStreaming } from "./lessonStreams";
@@ -50,6 +51,10 @@ export async function chat(
   message: string,
   onDelta: (delta: string) => void,
 ): Promise<string> {
+  // Knowledge library (K2): bounded expert-source passages relevant to this message.
+  // "" when the topic's library is empty or nothing matches — the prompt is unchanged.
+  const knowledge = await knowledgeForChat({ topicId: concept.topicId, title: concept.title }, message);
+
   const generatedImageProviders = mediaProviderRegistry.enabled().filter(isGenerative);
   const generatedImageAvailability = generatedImageProviders.length
     ? `Generated-image providers currently available: ${generatedImageProviders.map((p) => `${p.label} (${p.id})`).join(", ")}.`
@@ -59,7 +64,8 @@ export async function chat(
     `(${ctx.path.join(" > ")}).${ctx.summary ? ` This concept covers: ${ctx.summary}.` : ""}` +
     `${ctx.briefSummary ? ` Learner brief: ${ctx.briefSummary}.` : ""} ` +
     `Ground answers in this concept. Keep text replies to 2-4 short sentences unless asked ` +
-    `for more. Be concrete. No markdown.\n\n` +
+    `for more. Be concrete. No markdown.` +
+    `${knowledge ? `\n\n${knowledge}` : ""}\n\n` +
     `If the learner asks for code, an example, or a runnable demonstration, you may call ` +
     `setLessonCode to add a snippet directly into the lesson — it appears highlighted in the ` +
     `body and runnable in the Code tab on the right. Always give the snippet a short, specific ` +
