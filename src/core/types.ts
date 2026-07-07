@@ -305,6 +305,18 @@ export interface DocumentMeta {
   domain?: string;
   license?: string;
   pageCount?: number;
+  extraction?: {
+    visionMode: "none" | "hybrid" | "full";
+    localAdapterVersion: number;
+    routeId?: string;
+    modelId?: string;
+    pages: Array<{
+      page: number;
+      provenance: "pdfjs" | "vision";
+      quality: "good" | "weak" | "empty";
+      warnings: string[];
+    }>;
+  };
 }
 
 /** The distilled learner profile — who the user is, independent of any topic.

@@ -2,7 +2,7 @@
 // stored in localStorage. Dependency-light: imports only the model catalog, so
 // the AI service can read getModelId() without an import cycle.
 import type { TutorMode } from "./generation/tutor";
-import { getRoute, DEFAULT_ROUTE_ID } from "./ai/routes";
+import { getRoute, DEFAULT_ROUTE_ID, ROUTE_OPTIONS, type RouteModel } from "./ai/routes";
 import { AI_TASKS, type AiTaskId } from "./ai/tasks";
 import type { ProviderSettingsEnvelope } from "./ai/text/registry";
 
@@ -13,6 +13,43 @@ const PROVIDER_SETTINGS_KEY = "ascent-provider-settings";
 const THEME_KEY = "ascent-theme";
 const PREVIEW_WIDTH_KEY = "ascent-preview-width";
 const CHAT_PANEL_HEIGHT_KEY = "ascent-chat-panel-height";
+const PDF_EXTRACTION_KEY = "ascent-pdf-extraction";
+
+export type PdfVisionMode = "none" | "hybrid" | "full";
+
+export interface PdfExtractionSettings {
+  visionMode: PdfVisionMode;
+  /** A hard spend guard. Pages beyond this limit retain their local extraction. */
+  maxVisionPages: number;
+}
+
+export const DEFAULT_PDF_EXTRACTION_SETTINGS: PdfExtractionSettings = {
+  visionMode: "none",
+  maxVisionPages: 20,
+};
+
+export function getPdfExtractionSettings(): PdfExtractionSettings {
+  const raw = localStorage.getItem(PDF_EXTRACTION_KEY);
+  if (!raw) return DEFAULT_PDF_EXTRACTION_SETTINGS;
+  try {
+    const value = JSON.parse(raw) as Partial<PdfExtractionSettings>;
+    const visionMode = value.visionMode;
+    const maxVisionPages = Math.round(Number(value.maxVisionPages));
+    return {
+      visionMode: visionMode === "hybrid" || visionMode === "full" ? visionMode : "none",
+      maxVisionPages:
+        Number.isFinite(maxVisionPages) && maxVisionPages > 0
+          ? Math.min(maxVisionPages, 200)
+          : DEFAULT_PDF_EXTRACTION_SETTINGS.maxVisionPages,
+    };
+  } catch {
+    return DEFAULT_PDF_EXTRACTION_SETTINGS;
+  }
+}
+
+export function setPdfExtractionSettings(settings: PdfExtractionSettings): void {
+  localStorage.setItem(PDF_EXTRACTION_KEY, JSON.stringify(settings));
+}
 
 /** Width bounds (px) for the resizable right preview panel. */
 export const PREVIEW_WIDTH = { min: 360, max: 820, default: 440 } as const;
@@ -57,6 +94,10 @@ export function getRouteId(): string {
 
 export function setRouteId(id: string) {
   localStorage.setItem(ROUTE_KEY, id);
+}
+
+function modelSupportsTask(task: AiTaskId, model: RouteModel): boolean {
+  return AI_TASKS[task].requiredCapability !== "vision" || model.capabilities.includes("vision");
 }
 
 /** The model used for all generation, validated against the active route's catalog
@@ -143,7 +184,9 @@ export function getModelSelection(): ResolvedModelSelection {
 /** The route a task's requests go through. Falls back to the global route. */
 export function getTaskRouteId(task: AiTaskId): string {
   const v = localStorage.getItem(`${ROUTE_KEY}:${task}`);
-  return v ?? getRouteId();
+  const requested = getRoute(v ?? getRouteId());
+  if (requested.models.some((model) => modelSupportsTask(task, model))) return requested.id;
+  return ROUTE_OPTIONS.find((route) => route.models.some((model) => modelSupportsTask(task, model)))?.id ?? requested.id;
 }
 
 export function setTaskRouteId(task: AiTaskId, id: string | null) {
@@ -155,13 +198,15 @@ export function setTaskRouteId(task: AiTaskId, id: string | null) {
 export function getTaskModelId(task: AiTaskId): string {
   const route = getRoute(getTaskRouteId(task));
   const inCatalog = (id: string | null | undefined): id is string =>
-    !!id && route.models.some((m) => m.id === id);
+    !!id && route.models.some((model) => model.id === id && modelSupportsTask(task, model));
   const explicit = localStorage.getItem(`${MODEL_KEY}:${task}`);
   if (inCatalog(explicit)) return explicit;
   const fallback = AI_TASKS[task].defaultModelId;
   if (inCatalog(fallback)) return fallback;
   const global = localStorage.getItem(MODEL_KEY);
-  return inCatalog(global) ? global : route.defaultModelId;
+  if (inCatalog(global)) return global;
+  if (inCatalog(route.defaultModelId)) return route.defaultModelId;
+  return route.models.find((model) => modelSupportsTask(task, model))?.id ?? route.defaultModelId;
 }
 
 /** Persist a task's model override; null clears it (back to default/global). */
@@ -228,11 +273,13 @@ export function clearTaskOverride(task: AiTaskId) {
 export function getTaskInheritedModelId(task: AiTaskId): string {
   const route = getRoute(getRouteId());
   const inCatalog = (id: string | null | undefined): id is string =>
-    !!id && route.models.some((m) => m.id === id);
+    !!id && route.models.some((model) => model.id === id && modelSupportsTask(task, model));
   const fallback = AI_TASKS[task].defaultModelId;
   if (inCatalog(fallback)) return fallback;
   const global = localStorage.getItem(MODEL_KEY);
-  return inCatalog(global) ? global : route.defaultModelId;
+  if (inCatalog(global)) return global;
+  if (inCatalog(route.defaultModelId)) return route.defaultModelId;
+  return route.models.find((model) => modelSupportsTask(task, model))?.id ?? route.defaultModelId;
 }
 
 const WEBSEARCH_KEY = "ascent-websearch-enabled";

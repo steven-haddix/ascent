@@ -70,6 +70,10 @@ describe("Anthropic text-provider settings", () => {
 
   it("keeps unsupported provider values out of a model's resolved settings", () => {
     expect(anthropicModelCapabilities("claude-haiku-4-5-20251001").effortLevels).toEqual([]);
+    expect(anthropicModelCapabilities("claude-sonnet-5")).toEqual({
+      thinking: "adaptive",
+      effortLevels: ["low", "medium", "high", "xhigh", "max"],
+    });
     expect(
       parseAnthropicSettings("claude-sonnet-4-6", {
         thinking: { type: "adaptive" },
@@ -86,5 +90,12 @@ describe("Anthropic text-provider settings", () => {
         "lesson",
       ),
     ).toEqual({ thinking: { type: "disabled" }, effort: "high" });
+    expect(
+      parseAnthropicSettings(
+        "claude-sonnet-4-6",
+        { thinking: { type: "adaptive" }, effort: "low" },
+        "extract",
+      ),
+    ).toEqual({ thinking: { type: "disabled" }, effort: "low" });
   });
 });

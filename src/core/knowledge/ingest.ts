@@ -55,6 +55,7 @@ export function ensureExtractionJob(doc: DocumentRow): Promise<void> {
       if (!extractor) throw new Error(`no extractor accepts "${doc.mime ?? "unknown mime"}"`);
       const bytes = await libraryReadBlob(doc.contentHash);
       const extracted = await extractor.extract({ bytes, mime: doc.mime ?? "", title: doc.title });
+      const runExtractorId = extracted.extractorId ?? extractor.id;
 
       await setStatus(doc.id, { status: "chunking" });
       const chunks = chunkSections(extracted.sections);
@@ -82,17 +83,22 @@ export function ensureExtractionJob(doc: DocumentRow): Promise<void> {
 
       await setStatus(doc.id, {
         status: "ready",
-        extractorId: extractor.id,
+        extractorId: runExtractorId,
         extractionVersion: version,
+        ...(extracted.meta ? { meta: { ...doc.meta, ...extracted.meta } } : {}),
         ...(extracted.title && doc.title === doc.url ? { title: extracted.title } : {}),
       });
-      dlog("knowledge", `ready: doc ${doc.id} (${chunks.length} chunks, ${extractor.id} v${version})`);
+      dlog("knowledge", `ready: doc ${doc.id} (${chunks.length} chunks, ${runExtractorId} v${version})`);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       // Full detail (with stack) to the dev log channels; the UI stays generic.
       // The DB `error` keeps the detail too — it's a dev-inspectable field.
       derror("knowledge", `extraction failed for doc ${doc.id} (${doc.mime}, ${doc.byteSize ?? "?"}b, ${doc.extractorId ?? extractorFor(doc.mime ?? "")?.id ?? "no-extractor"}):`, err);
-      await setStatus(doc.id, { status: "failed", error: message }).catch(() => {});
+      // A failed opt-in upgrade must not discard a previously usable extraction.
+      await setStatus(doc.id, {
+        status: doc.extractionVersion > 0 ? "ready" : "failed",
+        error: message,
+      }).catch(() => {});
     }
   })();
   inflight.set(doc.id, job);
@@ -240,6 +246,15 @@ export async function removeTopicSources(topicId: string): Promise<void> {
 export async function retryDocument(documentId: number): Promise<void> {
   const doc = await documentRepo.get(documentId);
   if (!doc) return;
+  await documentRepo.update(documentId, { attempts: 0, error: null, updatedAt: Date.now() });
+  const fresh = await documentRepo.get(documentId);
+  if (fresh) void ensureExtractionJob(fresh);
+}
+
+/** Explicitly upgrade/rebuild a ready document using the current extraction policy. */
+export async function reextractDocument(documentId: number): Promise<void> {
+  const doc = await documentRepo.get(documentId);
+  if (!doc || inflight.has(documentId)) return;
   await documentRepo.update(documentId, { attempts: 0, error: null, updatedAt: Date.now() });
   const fresh = await documentRepo.get(documentId);
   if (fresh) void ensureExtractionJob(fresh);

@@ -28,13 +28,17 @@ export interface AnthropicModelCapabilities {
  *  fallback. Anthropic rejects forced tool choice when extended thinking is active.
  *  Effort remains available because it does not require thinking blocks. */
 export function anthropicThinkingAvailable(task?: AiTaskId): boolean {
-  return task !== "lesson" && task !== "teachback";
+  return task !== "lesson" && task !== "teachback" && task !== "extract";
 }
 
 /** Provider-owned capability matrix. Nothing outside the Anthropic adapter needs
  *  to know what adaptive thinking, manual budgets, or effort levels mean. */
 export function anthropicModelCapabilities(modelId: string): AnthropicModelCapabilities {
-  if (modelId.includes("claude-opus-4-8") || modelId.includes("claude-opus-4-7")) {
+  if (
+    modelId.includes("claude-opus-4-8") ||
+    modelId.includes("claude-opus-4-7") ||
+    modelId.includes("claude-sonnet-5")
+  ) {
     return { thinking: "adaptive", effortLevels: ["low", "medium", "high", "xhigh", "max"] };
   }
   if (modelId.includes("claude-sonnet-4-6") || modelId.includes("claude-opus-4-6")) {

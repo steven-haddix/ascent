@@ -78,4 +78,17 @@ describe("settings — per-task route/model resolution", () => {
     clearTaskOverride("tutor");
     expect(getTaskModelProviderSettings("tutor")).toBeNull();
   });
+
+  it("defaults PDF extraction to local-only and persists an explicit paid mode", async () => {
+    const { getPdfExtractionSettings, setPdfExtractionSettings } = await import("./settings");
+    expect(getPdfExtractionSettings()).toEqual({ visionMode: "none", maxVisionPages: 20 });
+    setPdfExtractionSettings({ visionMode: "hybrid", maxVisionPages: 10 });
+    expect(getPdfExtractionSettings()).toEqual({ visionMode: "hybrid", maxVisionPages: 10 });
+  });
+
+  it("resolves a vision-capable model for document extraction", async () => {
+    const { getTaskModelId } = await import("./settings");
+    const model = getTaskModelId("extract");
+    expect(model).toBeTruthy();
+  });
 });

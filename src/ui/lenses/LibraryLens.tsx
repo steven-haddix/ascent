@@ -1,38 +1,51 @@
 import { useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { openUrl } from "@tauri-apps/plugin-opener";
 import { sourceRepo, topicRepo, type LibraryEntry } from "../../core/store/repositories";
-import { removeSource, retryDocument, saveUploadToLibrary, setSourcePinned } from "../../core/knowledge/ingest";
+import { reextractDocument, removeSource, retryDocument, saveUploadToLibrary, setSourcePinned } from "../../core/knowledge/ingest";
 import { supportedMime } from "../../core/knowledge/extract/registry";
+import { DocumentSourceRow, documentMarker } from "../DocumentSourceRow";
 import type { LensProps } from "./types";
 
-const KIND_LABEL: Record<string, string> = {
-  paper: "Paper",
-  video: "Video",
-  blog: "Blog",
-  docs: "Docs",
-  pdf: "PDF",
-  web: "Web",
-  resume: "Resume",
-  notes: "Notes",
+const ROLE_LABEL: Record<string, string> = {
+  syllabus: "Syllabus",
+  "ground-truth": "Ground truth",
+  reference: "Reference",
 };
 
 /** Mid-pipeline phases all read as "Processing" — the exact phase is a tooltip detail. */
 const PROCESSING = new Set(["queued", "fetching", "extracting", "chunking", "indexing"]);
 
-function StatusChip({ entry }: { entry: LibraryEntry }) {
-  const s = entry.document.status;
-  if (s === "ready") return null;
-  if (PROCESSING.has(s)) {
+function DocumentStatus({ entry }: { entry: LibraryEntry }) {
+  const { document } = entry;
+  if (PROCESSING.has(document.status)) return <span className="text-ink-3">Indexing…</span>;
+  if (document.status === "failed") {
     return (
-      <span title={s} className="shrink-0 rounded-full bg-rule px-2 py-0.5 text-[10px] text-ink-3">
-        Processing…
+      <span className="text-danger">
+        Couldn't read this file{" "}
+        <button
+          onClick={() => void retryDocument(document.id)}
+          className="text-accent hover:underline focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-accent"
+        >
+          retry
+        </button>
       </span>
     );
   }
   return (
-    <span className="shrink-0 rounded-full bg-danger/10 px-2 py-0.5 text-[10px] text-danger">
-      Couldn't read
+    <span title={document.error ?? undefined}>
+      {document.error ? "Using previous extraction" : "✓ Indexed · ready to cite"}
+      {document.meta?.domain ? ` · ${document.meta.domain}` : ""}
+      {document.mime === "application/pdf" ? (
+        <>
+          {" · "}
+          <button
+            onClick={() => void reextractDocument(document.id)}
+            className="text-ink-3 hover:text-accent hover:underline focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-accent"
+          >
+            re-extract
+          </button>
+        </>
+      ) : null}
     </span>
   );
 }
@@ -74,7 +87,7 @@ export function LibraryLens({ concept }: LensProps) {
   };
 
   return (
-    <div className="flex h-full flex-col gap-3 overflow-y-auto p-3">
+    <div className="flex h-full flex-col gap-3 overflow-y-auto bg-bg p-3">
       <div className="flex items-center justify-between gap-2">
         <p className="text-[11.5px] text-ink-3">
           This topic's expert sources. Lessons draw on them and cite what they use.
@@ -121,49 +134,34 @@ export function LibraryLens({ concept }: LensProps) {
       ) : (
         <div className="flex flex-col gap-1.5">
           {entries.map((e) => (
-            <div key={e.source.id} className="group rounded-md border border-rule bg-surface px-3 py-2">
-              <div className="flex items-start justify-between gap-2">
-                <button
-                  onClick={() => (e.document.url ? void openUrl(e.document.url) : undefined)}
-                  disabled={!e.document.url}
-                  className="min-w-0 text-left"
-                >
-                  <span className="block truncate text-[13px] font-medium text-ink group-hover:text-accent">
-                    {e.document.title}
-                  </span>
-                  <span className="mt-0.5 block text-[11px] text-ink-4">
-                    {KIND_LABEL[e.document.kind] ?? e.document.kind}
-                    {e.document.meta?.domain ? ` · ${e.document.meta.domain}` : ""}
-                    {e.source.origin === "upload" ? " · uploaded" : ""}
-                  </span>
-                </button>
-                <div className="flex shrink-0 items-center gap-1.5">
-                  <StatusChip entry={e} />
-                  {e.document.status === "failed" ? (
-                    <button
-                      onClick={() => void retryDocument(e.document.id)}
-                      className="text-[11px] text-accent hover:underline"
-                    >
-                      Retry
-                    </button>
-                  ) : null}
+            <DocumentSourceRow
+              key={e.source.id}
+              marker={documentMarker(e.document.mime, e.document.kind)}
+              title={e.document.title}
+              url={e.document.url}
+              detail={<DocumentStatus entry={e} />}
+              badge={ROLE_LABEL[e.source.role] ?? e.source.role}
+              actions={
+                <>
                   <button
                     title={e.source.pinned ? "Unpin" : "Pin (always retrieved first)"}
                     onClick={() => void setSourcePinned(e.source.id, !e.source.pinned)}
-                    className={`text-[13px] ${e.source.pinned ? "text-accent" : "text-ink-4 hover:text-ink-2"}`}
+                    className={`shrink-0 text-[13px] active:text-ink disabled:cursor-not-allowed disabled:opacity-50 focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-accent ${
+                      e.source.pinned ? "text-accent" : "text-ink-4 hover:text-ink-2"
+                    }`}
                   >
                     {e.source.pinned ? "★" : "☆"}
                   </button>
                   <button
                     title="Remove from library"
                     onClick={() => void removeSource(e.source.id)}
-                    className="text-[13px] text-ink-4 hover:text-danger"
+                    className="shrink-0 text-[13px] text-ink-4 hover:text-danger active:text-ink disabled:cursor-not-allowed disabled:opacity-50 focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-accent"
                   >
                     ✕
                   </button>
-                </div>
-              </div>
-            </div>
+                </>
+              }
+            />
           ))}
         </div>
       )}

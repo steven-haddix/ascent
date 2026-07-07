@@ -35,8 +35,8 @@ describe("AI capability gating", () => {
     expect(e?.modelId).toBe("nomic-embed-text");
   });
 
-  it("vision is not implemented", () => {
-    expect(hasCapability("vision")).toBe(false);
+  it("vision is available through a route model", () => {
+    expect(hasCapability("vision")).toBe(true);
   });
 
   it("registry lists the built-in embedding providers", () => {

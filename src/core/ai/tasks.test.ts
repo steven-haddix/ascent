@@ -33,4 +33,8 @@ describe("requiredCapabilityOf", () => {
   it("returns 'textGeneration' for digest (explicitly set)", () => {
     expect(requiredCapabilityOf("digest")).toBe("textGeneration");
   });
+
+  it("requires vision for document extraction", () => {
+    expect(requiredCapabilityOf("extract")).toBe("vision");
+  });
 });

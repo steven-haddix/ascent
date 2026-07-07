@@ -4,6 +4,7 @@
 // secrets live in the Keychain (`provider:<id>`). A capability with no configured provider
 // hides/degrades the feature that needs it — no errors, no dead UI (A5).
 import type { AiCapability, AiTaskId } from "../tasks";
+import { ROUTE_OPTIONS } from "../routes";
 import type { EmbeddingProvider } from "./types";
 import { BUILTIN_EMBEDDING_PROVIDERS } from "./embeddings";
 
@@ -44,8 +45,11 @@ export const aiProviderRegistry = {
 /** Does ANY enabled+configured provider offer this capability? Drives feature gating (A5). */
 export function hasCapability(cap: AiCapability): boolean {
   if (cap === "textGeneration") return true; // the route system always provides text
+  if (cap === "vision") return ROUTE_OPTIONS.some((route) =>
+    route.models.some((model) => model.capabilities.includes("vision")),
+  );
   if (cap === "embeddings") return aiProviderRegistry.enabledEmbedding().length > 0;
-  return false; // vision: declared but not implemented
+  return false;
 }
 
 /** Resolve an embedding provider + model for a task (B7). v1 returns the first enabled

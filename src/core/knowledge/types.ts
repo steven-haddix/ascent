@@ -1,8 +1,9 @@
 // Knowledge library — document extraction contract (knowledge-backbone plan §5).
 // Extraction is the FOURTH instance of the provider+capability pattern (after
 // embeddings, media, and search): one output shape, many mechanisms. The two
-// local extractors are the always-on free/offline floor; a model-vision extractor
-// (the `extract` AI task) joins in K3 as an explicit, spend-visible upgrade.
+// local extractors are the always-on free/offline floor; the PDF extractor can
+// orchestrate the `extract` vision task as an explicit, spend-visible upgrade.
+import type { DocumentMeta } from "../types";
 
 /** What every extractor consumes: the stored blob's bytes plus routing hints. */
 export interface ExtractInput {
@@ -23,15 +24,19 @@ export interface ExtractedDoc {
   /** extractor-derived title when the document declares one (HTML <title>, PDF info) */
   title?: string;
   sections: ExtractedSection[];
+  /** Mechanism that actually produced this run; may differ per policy for PDFs. */
+  extractorId?: string;
+  /** Persisted with the document so hybrid/page-level provenance is inspectable. */
+  meta?: DocumentMeta;
 }
 
 export interface DocumentExtractor {
-  id: string; // "local-pdf" | "local-html" | "local-text" | "model-vision" (K3)
+  id: string; // "pdf" | "local-html" | "local-text"
   label: string;
   /** MIME types this extractor accepts (checked against the sniffed blob mime) */
   accepts: (mime: string) => boolean;
-  /** local = free/offline; model = costs tokens (never chosen implicitly) */
-  tier: "local" | "model";
+  /** orchestrated = always has a local floor but may use an explicit paid policy */
+  tier: "local" | "model" | "orchestrated";
   extract(input: ExtractInput): Promise<ExtractedDoc>;
 }
 

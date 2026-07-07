@@ -23,6 +23,10 @@ import {
   setTutorMode,
   isWebSearchEnabled,
   setWebSearchEnabled,
+  getPdfExtractionSettings,
+  setPdfExtractionSettings,
+  getTaskModelSelection,
+  type PdfVisionMode,
   THEMES,
   type Theme,
 } from "../core/settings";
@@ -94,12 +98,20 @@ function ModelList({
 
 /** Provider chips. Shown inside expanded editors so the provider is a per-pick
  *  choice, not a page-level global. */
-function ProviderPicker({ selectedId, onPick }: { selectedId: string; onPick: (id: string) => void }) {
+function ProviderPicker({
+  selectedId,
+  onPick,
+  routes = ROUTE_OPTIONS,
+}: {
+  selectedId: string;
+  onPick: (id: string) => void;
+  routes?: Route[];
+}) {
   return (
     <div className="mb-3">
       <div className="mb-1.5 text-[10.5px] font-medium uppercase tracking-wider text-ink-4">Provider</div>
       <div className="flex gap-1.5">
-        {ROUTE_OPTIONS.map((r) => (
+        {routes.map((r) => (
           <button
             key={r.id}
             onClick={() => onPick(r.id)}
@@ -337,12 +349,19 @@ function ScenarioRow({
           </button>
           <ProviderPicker
             selectedId={route.id}
+            routes={ROUTE_OPTIONS.filter((candidate) =>
+              task.requiredCapability !== "vision" || candidate.models.some((model) => model.capabilities.includes("vision")),
+            )}
             onPick={(id) => {
               setTaskRouteId(task.id, id);
               onChanged();
             }}
           />
-          <ModelList models={route.models} selectedId={overridden ? modelId : null} onPick={pick} />
+          <ModelList
+            models={route.models.filter((model) => task.requiredCapability !== "vision" || model.capabilities.includes("vision"))}
+            selectedId={overridden ? modelId : null}
+            onPick={pick}
+          />
           <ProviderSettingsPanel
             adapterId={route.adapterId}
             modelId={modelId}
@@ -466,6 +485,12 @@ type TabId = (typeof TABS)[number]["id"];
 
 const TASK_IDS = Object.keys(AI_TASKS) as AiTaskId[];
 
+const PDF_EXTRACTION_MODES: Array<{ id: PdfVisionMode; label: string; detail: string }> = [
+  { id: "none", label: "Local only", detail: "PDF.js · offline and free" },
+  { id: "hybrid", label: "Smart fallback", detail: "Vision only for weak pages" },
+  { id: "full", label: "Vision every page", detail: "Highest cost and fidelity" },
+];
+
 /** Settings modal. The Models tab is organized the way it's used: per-provider
  *  API keys (global, masked, edit-in-place), one default model (collapsed to the
  *  current pick), and a scenario list where each AI use case can pin its own
@@ -495,6 +520,8 @@ export function Settings({
   const defaultRoute = getRoute(getRouteId());
   const defaultModelId = getModelId();
   const defaultOption = defaultRoute.models.find((m) => m.id === defaultModelId);
+  const pdfExtraction = getPdfExtractionSettings();
+  const extractionModel = getTaskModelSelection("extract");
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -646,6 +673,73 @@ export function Settings({
 
           {tab === "sources" && (
             <>
+              <section>
+                <SectionLabel>PDF extraction</SectionLabel>
+                <div className="grid grid-cols-3 gap-1.5">
+                  {PDF_EXTRACTION_MODES.map((mode) => {
+                    const selected = pdfExtraction.visionMode === mode.id;
+                    return (
+                      <button
+                        key={mode.id}
+                        type="button"
+                        aria-pressed={selected}
+                        onClick={() => {
+                          setPdfExtractionSettings({ ...pdfExtraction, visionMode: mode.id });
+                          refresh();
+                        }}
+                        className={`rounded-md border px-2.5 py-2.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-accent/50 ${
+                          selected
+                            ? "border-accent bg-accent/10"
+                            : "border-rule hover:border-rule-strong hover:bg-surface-2/40"
+                        }`}
+                      >
+                        <span className="flex items-center gap-2">
+                          <span
+                            aria-hidden="true"
+                            className={`grid h-3.5 w-3.5 shrink-0 place-items-center rounded-full border ${
+                              selected ? "border-accent" : "border-rule-strong"
+                            }`}
+                          >
+                            {selected ? <span className="h-1.5 w-1.5 rounded-full bg-accent" /> : null}
+                          </span>
+                          <span className="text-[12px] font-medium text-ink">{mode.label}</span>
+                        </span>
+                        <span className="mt-1 block pl-[22px] text-[10.5px] leading-snug text-ink-3">
+                          {mode.detail}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+                {pdfExtraction.visionMode !== "none" ? (
+                  <div className="mt-2 flex items-center justify-between rounded-md border border-rule bg-surface-2/40 px-3 py-2">
+                    <span className="text-[11.5px] text-ink-3">
+                      Spend guard · {getRoute(extractionModel.routeId).label} / {modelLabel(getRoute(extractionModel.routeId), extractionModel.modelId)}
+                    </span>
+                    <label className="flex items-center gap-2 text-[11.5px] text-ink-2">
+                      Max pages
+                      <select
+                        value={pdfExtraction.maxVisionPages}
+                        onChange={(event) => {
+                          setPdfExtractionSettings({
+                            ...pdfExtraction,
+                            maxVisionPages: Number(event.target.value),
+                          });
+                          refresh();
+                        }}
+                        className="rounded border border-rule bg-surface px-1.5 py-1 text-[11.5px]"
+                      >
+                        {[5, 10, 20, 50, 100].map((value) => <option key={value} value={value}>{value}</option>)}
+                      </select>
+                    </label>
+                  </div>
+                ) : null}
+                <p className="mt-1.5 text-[11px] text-ink-4">
+                  Local extraction always runs first. Configure the “Document vision extraction” model under Models;
+                  existing documents change only when you choose Re-extract.
+                </p>
+              </section>
+
               {/* Visual asset providers — sourced and generated imagery */}
               <section>
                 <SectionLabel>Image sources</SectionLabel>

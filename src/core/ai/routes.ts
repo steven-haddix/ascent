@@ -17,6 +17,7 @@ export interface RouteModel {
   id: string;
   label: string;
   blurb: string;
+  capabilities: Array<"textGeneration" | "vision">;
 }
 
 /** How Rust injects the BYO key for this route. */
@@ -58,11 +59,16 @@ export interface Route {
 }
 
 // Anthropic API list prices, USD per 1M tokens.
-// Source: https://platform.claude.com/docs/en/about-claude/pricing (verified 2026-05-28).
+// Source: https://platform.claude.com/docs/en/about-claude/pricing (verified 2026-07-06).
 // cachedInput = the "Cache Hits & Refreshes" (0.1x base input) rate.
+const SONNET_5_RATES: ModelRates = Date.now() < Date.UTC(2026, 8, 1)
+  ? { input: 2, output: 10, cachedInput: 0.2 }
+  : { input: 3, output: 15, cachedInput: 0.3 };
+
 const ANTHROPIC_RATES: Record<string, ModelRates> = {
   [MODELS.flagship]: { input: 5, output: 25, cachedInput: 0.5 }, // Opus 4.8
   [MODELS.flagshipPrev]: { input: 5, output: 25, cachedInput: 0.5 }, // Opus 4.7
+  [MODELS.sonnetLatest]: SONNET_5_RATES, // Introductory pricing ends 2026-08-31.
   [MODELS.default]: { input: 3, output: 15, cachedInput: 0.3 }, // Sonnet 4.6
   [MODELS.fast]: { input: 1, output: 5, cachedInput: 0.1 }, // Haiku 4.5
 };
@@ -103,10 +109,11 @@ const openrouter: Route = {
   authScheme: "bearer",
   baseURL: "https://openrouter.ai/api/v1",
   models: [
-    { id: "anthropic/claude-opus-4-8", label: "Opus 4.8 (via OpenRouter)", blurb: "Newest, most capable." },
-    { id: "anthropic/claude-opus-4-7", label: "Opus 4.7 (via OpenRouter)", blurb: "Previous flagship." },
-    { id: "anthropic/claude-sonnet-4-6", label: "Sonnet (via OpenRouter)", blurb: "Balanced default." },
-    { id: "anthropic/claude-haiku-4-5", label: "Haiku (via OpenRouter)", blurb: "Fastest & cheapest." },
+    { id: "anthropic/claude-opus-4-8", label: "Opus 4.8 (via OpenRouter)", blurb: "Newest, most capable.", capabilities: ["textGeneration", "vision"] },
+    { id: "anthropic/claude-opus-4-7", label: "Opus 4.7 (via OpenRouter)", blurb: "Previous flagship.", capabilities: ["textGeneration", "vision"] },
+    { id: "anthropic/claude-sonnet-5", label: "Sonnet 5 (via OpenRouter)", blurb: "Newest Sonnet.", capabilities: ["textGeneration", "vision"] },
+    { id: "anthropic/claude-sonnet-4-6", label: "Sonnet 4.6 (via OpenRouter)", blurb: "Balanced default.", capabilities: ["textGeneration", "vision"] },
+    { id: "anthropic/claude-haiku-4-5", label: "Haiku 4.5 (via OpenRouter)", blurb: "Fastest & cheapest.", capabilities: ["textGeneration", "vision"] },
   ],
   defaultModelId: "anthropic/claude-sonnet-4-6",
   costMode: "reported",
@@ -114,6 +121,7 @@ const openrouter: Route = {
   rates: {
     "anthropic/claude-opus-4-8": { input: 5, output: 25, cachedInput: 0.5 },
     "anthropic/claude-opus-4-7": { input: 5, output: 25, cachedInput: 0.5 },
+    "anthropic/claude-sonnet-5": SONNET_5_RATES,
     "anthropic/claude-sonnet-4-6": { input: 3, output: 15, cachedInput: 0.3 },
     "anthropic/claude-haiku-4-5": { input: 1, output: 5, cachedInput: 0.1 },
   },

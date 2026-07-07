@@ -35,13 +35,21 @@ describe("chunkSections", () => {
     expect(locators).toEqual(new Set(["Intro", "Method"]));
   });
 
-  it("merges runt sections forward instead of emitting slivers", () => {
+  it("merges runt sections only when their locator remains truthful", () => {
     const chunks = chunkSections([
       { locator: "Heading", text: "One line." },
-      { locator: "Next", text: sentence.repeat(10) },
+      { locator: "Heading", text: sentence.repeat(10) },
     ]);
     expect(chunks[0].text.length).toBeGreaterThanOrEqual(CHUNK_MIN_CHARS);
     expect(chunks[0].locator).toBe("Heading");
+  });
+
+  it("does not merge a short PDF page into a different page locator", () => {
+    const chunks = chunkSections([
+      { locator: "p.1", text: "Short cover." },
+      { locator: "p.2", text: sentence.repeat(10) },
+    ]);
+    expect(chunks.map((chunk) => chunk.locator)).toEqual(["p.1", "p.2"]);
   });
 
   it("drops empty sections and normalizes whitespace", () => {

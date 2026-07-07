@@ -1,14 +1,13 @@
 // Extractor registry — resolves a stored blob's mime to a DocumentExtractor.
 // Own registry, mirroring search/registry.ts (the provider+capability pattern's
-// fourth instance). v1 registers the local tier only; the model-vision extractor
-// (the `extract` AI task) is added in K3 behind an explicit Settings choice —
-// extraction must never spend tokens implicitly.
+// fourth instance). The PDF entry is an orchestrator: PDF.js is always the local
+// floor and the `extract` vision task is enabled only by explicit Settings policy.
 import type { DocumentExtractor } from "../types";
 import { localHtml } from "./localHtml";
-import { localPdf } from "./localPdf";
+import { pdfExtractor } from "./pdf/pdfExtractor";
 import { localText } from "./localText";
 
-const EXTRACTORS: DocumentExtractor[] = [localPdf, localHtml, localText];
+const EXTRACTORS: DocumentExtractor[] = [pdfExtractor, localHtml, localText];
 
 /** The extractor for a blob's (sniffed) mime, or null when nothing accepts it. */
 export function extractorFor(mime: string): DocumentExtractor | null {

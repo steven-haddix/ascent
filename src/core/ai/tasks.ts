@@ -26,6 +26,7 @@ export type AiTaskId =
   | "embed"
   | "director"
   | "figure"
+  | "extract"
   | "websearch";
 
 export interface AiTask {
@@ -57,6 +58,7 @@ export const AI_TASKS: Record<AiTaskId, AiTask> = {
   embed: { id: "embed", label: "Embeddings", requiredCapability: "embeddings" },
   director: { id: "director", label: "Visual director", defaultModelId: MODELS.fast, requiredCapability: "textGeneration" },
   figure: { id: "figure", label: "Figure generation", defaultModelId: MODELS.fast, requiredCapability: "textGeneration" },
+  extract: { id: "extract", label: "Document vision extraction", requiredCapability: "vision" },
   // The native search-only call (anthropicNative) — a text model + the web_search server tool.
   // Cheap by default (Haiku); the FEATURE gate is hasSearchCapability() in search/registry, not here.
   websearch: { id: "websearch", label: "Web search", defaultModelId: MODELS.fast, requiredCapability: "textGeneration" },
